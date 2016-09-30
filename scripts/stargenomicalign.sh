@@ -10,8 +10,8 @@
 module load perlnew
 module load star
 
-outdir="/home/jajpark/niehs/results/alignments/stargen"
-dir="/home/jajpark/niehs/Data/nebtrim"
+outdir="/home/jajpark/niehs/results/alignments/stargen/lanes_3-8/"
+dir="/home/jajpark/niehs/Data/nebtrim_lanes_3-8/"
 
 for sample in `ls /home/jajpark/niehs/Data/nebtrim/*R1_001.qc.fq.gz`
 do
@@ -19,7 +19,7 @@ do
 	base=$(basename $sample "_R1_001.qc.fq.gz")
 	echo $base
 	
-	echo `STAR --genomeDir /home/jajpark/niehs/align/stargen-index/ --runThreadN 24 --readFilesCommand zcat --readFilesIn ${dir}/${base}_R1_001.qc.fq ${dir}/${base}_R2_001.qc.fq --outFileNamePrefix $outdir/$base`
+	echo `STAR --genomeDir /home/jajpark/niehs/align/stargen-index/ --runThreadN 24 --readFilesCommand zcat --readFilesIn ${dir}/${base}_R1_001.qc.fq.gz ${dir}/${base}_R2_001.qc.fq.gz --outFileNamePrefix $outdir/$base`
 	
 done
 

@@ -16,13 +16,13 @@ outdir="/home/jajpark/niehs/results/alignments/startran"
 # define trimmed reads directory
 dir="/home/jajpark/niehs/Data/nebtrim"
 
-for sample in `grep '\R1_001.qc.fq.gz$' /home/jajpark/niehs/Data/startranfiles.txt`
+for sample in `ls /home/jajpark/niehs/Data/nebtrim/*R1_001.qc.fq.gz` 
 do
 	
 	base=$(basename $sample "_R1_001.qc.fq.gz")
 	echo $base
 	
-	echo `STAR --genomeDir /home/jajpark/niehs/align/startran-index --runThreadN 24 --readFilesCommand zcat --readFilesIn ${dir}/${base}_R1_001.qc.fq ${dir}/${base}_R2_001.qc.fq --outFileNamePrefix $outdir/$base`
+	echo `STAR --genomeDir /home/jajpark/niehs/align/startran-index --runThreadN 24 --readFilesCommand zcat --readFilesIn ${dir}/${base}_R1_001.qc.fq.gz ${dir}/${base}_R2_001.qc.fq.gz --outFileNamePrefix $outdir/$base`
 	
 done
 
