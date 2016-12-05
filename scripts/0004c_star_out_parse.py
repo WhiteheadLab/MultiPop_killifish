@@ -65,7 +65,7 @@ def get_sample_dictionary(basedir):
 
 def alignment_table_file_star(basedir):
     #alignment_table_filename="/home/ljcohen/parse_files/"+"star_alignment_stats.txt"
-    alignment_table_filename="/home/jajpark/niehs/Data/alignmentstats/"+"star_alignment_stats2.txt"
+    alignment_table_filename="/home/jajpark/niehs/Data/alignmentstats/"+"star_hetannot_2.txt"
     header=["Sample","Input Reads","Uniquely mapped reads", "% Mapped"]
     len(header)
     sample_dictionary=get_sample_dictionary(basedir)
@@ -85,6 +85,6 @@ def alignment_table_file_star(basedir):
 
 
 # example star_out_file: /home/jajpark/niehs/results/alignments/stargen/0001ARSC32191_S1_L005Log.final.out"
-basedir="/home/jajpark/niehs/results/alignments/stargrandis/lanes_1-2/"
+basedir="/home/jajpark/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_3-8/"
 alignment_table_file_star(basedir)
 
