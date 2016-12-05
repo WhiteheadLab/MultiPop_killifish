@@ -166,9 +166,12 @@ I compared the two .fa files and found the adapter sequences are different. I'm 
 #####Notes on doing this on Lanes 3-8:
 September 13, 2016
 
-I changed the name of the directories containing the raw data from lanes 1-2 and lanes 3-8. These must remain separated because lanes 1-2 are denoted with L001 and L002, respectively, and the first two lanes in lanes_3-8 are also denoted with the same names. 
+I changed the name of the directories containing the raw data from lanes 1-2 and lanes 3-8. These must remain separated because lanes 1-2 are denoted with L005 and L006, respectively, and the last two lanes in lanes_3-8 are also denoted with these same identifiers. 
 
-		0003_posttrimfastqc.sh
+		0002_trimmomaticNEB.sh
+		
+		##Some of the raw data (from folder cbt64b3g2h) that I dl'd was corrupted, so I ran it again on re-downloaded data:
+		0002b_trimmomaticNEB.sh 
 
 The absolute path for raw data from lanes 1-2:
 
@@ -185,6 +188,8 @@ The absolute path for trimmed data from lanes 1-2:
 The absolute path for trimmed data from lanes 3-8:
 	
 	/home/jajpark/niehs/Data/nebtrim_lanes_3-8/
+	
+After running trimmomatic on the raw data, I moved the raw data that I re-downloaded for Lane 3 into /nebtrim_lanes_3-8. All raw data in the larger folder are now good to use. 
 	
 	
 ###FastQC on trimmed data
@@ -252,12 +257,24 @@ I decided to try using STAR, which is apparently very fast and ascertains splice
 
 First I indexed the reference genome and transcriptome:
 
-		starindex.sh
+		starindex.sh		
 Then I started the alignment processes using each:
 
 		stargenomicalign.sh
-		startranscralign.sh
+		startranscralign.sh		
 		
+######Edit (Sep 30, 2016)######
+STAR aligner produces much higher alignment rates (~80%) and only took a few hours to run. I'll move forward with these alignments for my analyses. 
+
+######Edit:16 November, 2016#####
+
+I didn't include genome annotation in the index build and mapping, and the manual says it's important to include it for improving accuracy of mapping. I re-built my genome index using the annotation file: 
+
+		~/niehs/align/star-gen-hetannot/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff
+		
+using the following script: 
+
+	0003c_starindex_hexannotate.sh
 		
 #####Mapping reads from Lanes 3-8 to reference F. heteroclitus genome and F. grandis genome (Sep 26, 2016)
 
@@ -272,30 +289,42 @@ The script for aligning to the F. grandis reference genome is:
 
 I aligned lanes 1-2 to the F. grandis reference genome and compared alignment statistics with that from the alignment to F. heteroclitus genome. (See R code listed in Visualizing Alignment Stats.)
 
+I used the following script to align lanes 3-8 to the F. heteroclitus reference genome: 
 
-###Samtools
-
-
-I used samtools to sort and index my accepted_hits.bam file. 
-Then I used the bedtools genomecov ()genomeCoverageBed) package to calculate coverage across my reference genome. 
-I used the UCSC genome browser and IGV to visualize this data. 
-
-###Visual QC of alignment
-
-
-I got IGV to work, but I'm not sure I'm using the right files because I can't make any sense of what's going on. I don't have chromosomes, instead I'm getting list of scaffolds. 
-
+		0004b_staralign_het_3-8.sh
 		
-Today was a slow and arduous day of reading through many outdated tutorials on WHAT to do with alignment files. It seems like the tools are so widely used that nobody botehrs to spell things out for people like me, or they don't bother to update the manuals as new versions of the tools are released. I can't find a decent tutorial on the UCSC genome browser for the life of me, and it's impossible to know why IGV is listing scaffolds instead of chromosomes. Underneath all of this, I still don't know if it was wise to use the NCBI/refseq reference genome for my alignment, since it seems it's a more conservative(?) alignment. 
+######Edit: 16 November 2016
+I realigned using the genome index generated with annotation file (see edit in above section).
 
+	0004d_staralign_hetannot_3-8.sh
+	0004d_staralign_hetannot_1-2.sh
 
-I just need to check coverage across the genome to make sure I don't have any blaring red flags in order to give the genome center the green light for further lanes of sequencing. 
-		
-		
-OK so I restarted IGV and somehow the reference genome fixed itself and I can finally see the chromosomes (post-edit: I only learned after the fact that there are no chromosome annotations, only up till scaffold). NOW the main issue is I have to build an alias file for my alignment files because the NCBI annotations for chromosomes are totally different from what IGV uses. WHY I don't know. But now that there's a concrete solution to this I can finally sleep. 
+######Edit: 	28 November 2016
+In future alignments, use the --outSAMattrRGline flag with STAR. 
+You can also use the --outSAMtype flag to specify SAM/BAM output with/out sorting. 
+	
 
-Post-edit: 
-Tablet is much easier to use. 
+#####Output(September 30, 2016)
+
+The output is multiple files: 
+
+* Aligned.out.sam 
+* Log.final.out
+* Log.out
+* Log.progress.out
+* out.tab
+* STARtmp
+
+###Alignment stats
+September 30, 2016
+
+Use samtools to: 
+
+* convert STAR sam files into bam. 
+* sort bam files
+* filter alignments based on mapping quality
+
+Use RSeQC to get more alignment stats. 
 
 
 ###Visualizing alignment stats
@@ -333,8 +362,93 @@ Aligning to F. grandis genome yielded slightly higher alignment rates:
 	range(grandmapped)
 	# 61.15 91.13
 
-Not sure how much of the grandis genome is annotated (need to ask Cole Matson). Just in case I'll have alignments using both heteroclitus and grandis genomes. 
+Not sure how much of the grandis genome is annotated (need to ask Cole Matson). (Post-edit 11/14/16: The genome isn't annotated yet.) Just in case I'll have alignments using both heteroclitus and grandis genomes. 
 
+
+#####Compare alignment stats between F. heteroclitus without and with annotation included in STAR genome indexing
+(November 18, 2016)
+
+I re-did the alignments using a genome index I built including .gff file. I compared the summary statistics using the same R script (alignmentstats_bargraph.R) as above:
+
+	mean(hetmapped)
+	# 85.08952
+	
+	median(hetmapped)
+	# 85.35978
+	
+	range(hetmapped)
+	# 60.14234 91.33387
+	
+I have slightly higher alignment rate using the annotation than without. 
+
+###Visual QC of alignment
+
+
+I got IGV to work, but I'm not sure I'm using the right files because I can't make any sense of what's going on. I don't have chromosomes, instead I'm getting list of scaffolds. (Post edit 11/14/16: It's because the annotations are only up to the scaffold level.)
+
+		
+Today was a slow and arduous day of reading through many outdated tutorials on WHAT to do with alignment files. It seems like the tools are so widely used that nobody botehrs to spell things out for people like me, or they don't bother to update the manuals as new versions of the tools are released. I can't find a decent tutorial on the UCSC genome browser for the life of me, and it's impossible to know why IGV is listing scaffolds instead of chromosomes (Post-edit 11/14/16: now I know LOL). Underneath all of this, I still don't know if it was wise to use the NCBI/refseq reference genome for my alignment, since it seems it's a more conservative(?) alignment (Post-edit 11/14/16: This is a fine reference genome to use, because I'm getting ~80% alignment rate using STAR aligner, which is not much different from aligning to the F. grandis reference transcriptome). 
+
+
+I just need to check coverage across the genome to make sure I don't have any blaring red flags in order to give the genome center the green light for further lanes of sequencing. 
+		
+		
+OK so I restarted IGV and somehow the reference genome fixed itself and I can finally see the chromosomes (post-edit: Not sure how this happened, since I only have up to scaffold annotations). Now the main issue is that I have to build an alias file for my alignment files because the NCBI annotations for chromosomes are totally different from what IGV uses. WHY I don't know. But now that there's a concrete solution to this I can finally sleep. 
+
+Post-edit: 
+Tablet is much easier to use. 
+
+###Post-Alignment Quality Control 
+15 November, 2016
+
+The first thing I need to do is merge bam files according to Sample ID across multiple lanes. 
+
+I converted sam to bam, and sorted the bam files using:
+
+		0005a_sambamsort_samtools.sh
+		
+Resulting output files are named like $sampleAligned.out.bam in:
+
+		~/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_1-2/
+		~/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_3-8/
+		
+In order to merge my bam files, I need @RG information for all my files. It turns out that there is a flag in STAR that allows for @RG specification, but because I missed that memo I'll have to use Picard Tools to add @RG information to my alignment files. 
+		
+		
+I loosely based the @RG fields off of the [GATK guide](https://software.broadinstitute.org/gatk/guide/article?id=6472) on read group fields requirements. Below are what I used: 
+
+	ID = sample name _ lane number
+	This tag identifies which read group each read belongs to, so each read group's ID must be unique. It is referenced both in the read group definition line in the file header (starting with @RG) and in the RG:Z tag for each read record. Note that some Picard tools have the ability to modify IDs when merging SAM files in order to avoid collisions. In Illumina data, read group IDs are composed using the flowcell + lane name and number, making them a globally unique identifier across all sequencing data in the world. Use for BQSR: ID is the lowest denominator that differentiates factors contributing to technical batch effects: therefore, a read group is effectively treated as a separate run of the instrument in data processing steps such as base quality score recalibration, since they are assumed to share the same error model.
+	
+	PU = Platform Unit (e.g. x)
+		
+	SM = Sample (e.g. ARSC32191, or ARS, ParentControl, 32% oil dose, stage 19, rep 1)
+	The name of the sample sequenced in this read group. GATK tools treat all read groups with the same SM value as containing sequencing data for the same sample, and this is also the name that will be used for the sample column in the VCF file. Therefore it's critical that the SM field be specified correctly. When sequencing pools of samples, use a pool name instead of an individual sample name.
+	
+	PL = Platform/technology used to produce the read (e.g. Illumina)
+	This constitutes the only way to know what sequencing technology was used to generate the sequencing data. Valid values: ILLUMINA, SOLID, LS454, HELICOS and PACBIO.
+	
+	LB = GATK says DNA preparation library identifier, but because each sample is its own library, I used lane number (e.g. L001)
+	MarkDuplicates uses the LB field to determine which read groups might contain molecular duplicates, in case the same DNA library was sequenced on multiple lanes.
+	
+
+I used PicardTools in the following script, and moved all bam files with @RG to the following directory:
+
+	0006a_addRG_lanes1-2.sh
+	0006b_addRG_lanes3-8.sh
+	~/niehs/results/alignments/star_heteroclitus_annot_161116/merge/
+
+
+3. Merge sorted STAR bam files
+     * There are a number of different programs to use for this step (samtools merge, bamtools merge, picardtools)
+     
+Picardtools MergeSamFiles.jar uses sam files. 
+
+
+(Sometime in August, using TopHat2 aligned sam files)
+I used samtools to sort and index my accepted_hits.bam file. 
+Then I used the bedtools genomecov ()genomeCoverageBed) package to calculate coverage across my reference genome. (Post-edit: wasn't sure if I got it to work and didn't really know what I was looking at and abandoned it for the time being. )
+I used the UCSC genome browser and IGV to visualize this data. 
 
 ###Perform annotation-based quality control
 * RSeQC
