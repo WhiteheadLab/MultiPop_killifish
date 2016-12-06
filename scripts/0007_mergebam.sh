@@ -14,24 +14,23 @@ DIR=~/niehs/results/alignments/star_heteroclitus_annot_161116/withRG
 OUTDIR=~/niehs/results/alignments/star_heteroclitus_annot_161116/merge
 cd $DIR
 
+
 for file in `ls *.bam`
 do
-	num=`echo $file | cut -c 1-4`
-	echo $num
-	
-	for f in `ls ${num}*.bam | head -1`
-		do 
-			ls -1 $num* > list
-			cat list
-			
-		done
-	
-	outname=`echo $file | cut -f 1 -d "_"`
-	out="${OUTDIR}/$outname.bam"
-	echo $out
+	name=`echo $file | cut -f 1 -d "_"`	
+	echo $name
+done > names.txt
 
-	samtools merge -f -b list $out
+cat names.txt | uniq > uniqnames.txt
+
+for f in `cat uniqnames.txt`
+do 
+	ls -1 $f*.bam > list
+	cat list
+	out="${OUTDIR}/$f.bam"
+	echo $out
 	
+	samtools merge -f -b list $out
 done
 	
-	
+
