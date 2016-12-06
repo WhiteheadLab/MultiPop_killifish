@@ -6,7 +6,19 @@ RNASeq Analysis
 
 Last modified: 5 December, 2016
 
-####Retrieving raw read data from Slim (UC Davis Genome Center Server)
+##General Pipeline so far:
+
+* [Download reference genome](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#downloading-reference-genome)
+* [Retrieve raw reads from the sequencing facility](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#retrieving-raw-read-data-from-slim)
+* [Running FastQC](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#running-fastqc)
+* [Trim short reads with Trimmomatic](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#trim-short-reads-with-trimmomatic)
+* [Map reads using STAR aligner](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#mapping-reads-to-reference-genome-and-transcriptome-using-star)
+* [Visualize alignment stats](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#visualizing-alignment-stats)
+* [Visual QC of alignment](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#visual-qc-of-alignment)
+* [Post-alignment Quality Control](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#post-alignment-quality-control)
+
+
+###Retrieving raw read data from Slim
 
 Shell scripts: 
 	
