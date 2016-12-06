@@ -6,7 +6,15 @@ RNASeq Analysis
 
 Last modified: 5 December, 2016
 
-####Retrieving raw read data from Slim (UC Davis Genome Center Server)
+##General Pipeline so far:
+
+* [Download reference genome](https://github.com/janejpark/niehs/edit/master/niehs_readme.md#Downloadingreferencegenome)
+* [Retrieve raw reads from the sequencing facility](https://github.com/janejpark/niehs/edit/master/niehs_readme.md#RetrievingrawreaddatafromSlim)
+* [Running FastQC](https://github.com/janejpark/niehs/edit/master/niehs_readme.md#RunningFastQC)
+* [Trim short reads with Trimmomatic](https://github.com/janejpark/niehs/edit/master/niehs_readme.md#Trimshortreadswithtrimmomatic)
+* 
+
+###Retrieving raw read data from Slim
 
 Shell scripts: 
 	
