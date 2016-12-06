@@ -15,7 +15,7 @@ DIR=~/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_3-8
 mergdir=~/niehs/results/alignments/star_heteroclitus_annot_161116/withRG
 cd $DIR
 
-for file in `ls 017*Aligned.out.bam`
+for file in `ls *L004*Aligned.out.bam`
 do
 	# base=$(basename $file .bam)
 # 	echo $base

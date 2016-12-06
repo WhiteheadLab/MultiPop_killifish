@@ -11,7 +11,7 @@ set -u
 
 module load samtools
 
-DIR="/home/jajpark/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_1-2"
+DIR=~/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_1-2
 cd $DIR
 
 for sample in `ls $DIR/*Aligned.out.sam` 

@@ -10,7 +10,7 @@ module load fastqc
 
 start_time=`date +%s`
 
-DIR="/home/jajpark/niehs"
+DIR=~/niehs
 
 ## Keep track of errors and outputs in a log.
 logDir=$DIR/logs #Create log folder if it doesn't exist

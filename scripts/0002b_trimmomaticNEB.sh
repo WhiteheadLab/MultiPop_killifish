@@ -10,8 +10,8 @@ set -e
 set -u
 
 
-DIR="/home/jajpark/niehs/Data/lanes_3-8/ReDLData"
-outdir="/home/jajpark/niehs/Data/nebtrim_lanes_3-8/"
+DIR=~/niehs/Data/lanes_3-8/ReDLData
+outdir=~/niehs/Data/nebtrim_lanes_3-8/
 
 
 cd $DIR

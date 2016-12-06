@@ -17,7 +17,7 @@ module load samtools
 DIR=~/niehs/results/alignments/star_heteroclitus_annot_161116/lanes_3-8
 cd $DIR
 
-for sample in `ls 017*Aligned.out.sam` 
+for sample in `ls *Aligned.out.sam` 
 do
 	
 	base=$(basename $sample .sam)

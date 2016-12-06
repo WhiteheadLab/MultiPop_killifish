@@ -1,7 +1,10 @@
 JJPark
-Project: NIEHS UCD-LSU 
+
+Project: NIEHS UCD-LSU
+ 
 RNASeq Analysis
-Last modified: Monday September 26, 2016
+
+Last modified: 5 December, 2016
 
 ####Retrieving raw read data from Slim (UC Davis Genome Center Server)
 
@@ -436,13 +439,18 @@ I used PicardTools in the following script, and moved all bam files with @RG to 
 
 	0006a_addRG_lanes1-2.sh
 	0006b_addRG_lanes3-8.sh
-	~/niehs/results/alignments/star_heteroclitus_annot_161116/merge/
+	~/niehs/results/alignments/star_heteroclitus_annot_161116/withRG/
 
 
-3. Merge sorted STAR bam files
+3. Merge sorted STAR bam files from across different lanes into one big bam file:
      * There are a number of different programs to use for this step (samtools merge, bamtools merge, picardtools)
      
-Picardtools MergeSamFiles.jar uses sam files. 
+I used samtools merge in the following script and moved all merged bam files into the following directory:
+
+	0007_mergebam.sh
+	~/niehs/results/alignments/star_heteroclitus_annot_161116/merge/
+	
+	
 
 
 (Sometime in August, using TopHat2 aligned sam files)
