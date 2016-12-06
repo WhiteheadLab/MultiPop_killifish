@@ -8,10 +8,10 @@ Last modified: 5 December, 2016
 
 ##General Pipeline so far:
 
-* [Download reference genome](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#Downloading-reference-genome)
-* [Retrieve raw reads from the sequencing facility](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#Retrieving-raw-read-data-from-Slim)
+* [Download reference genome](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#download-reference-genome)
+* [Retrieve raw reads from the sequencing facility](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#retrieving-raw-read-data-from-slim)
 * [Running FastQC](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#running-fastqc)
-* [Trim short reads with Trimmomatic](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#Trim-short-reads-with-trimmomatic)
+* [Trim short reads with Trimmomatic](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#trim-short-reads-with-trimmomatic)
 * 
 
 ###Retrieving raw read data from Slim
