@@ -4,7 +4,7 @@ Project: NIEHS UCD-LSU
  
 RNASeq Analysis
 
-Last modified: 5 December, 2016
+Last modified: 21 December, 2016
 
 ##General Pipeline so far:
 
@@ -18,7 +18,7 @@ Last modified: 5 December, 2016
 * [Post-alignment Quality Control](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#post-alignment-quality-control)
 
 
-###Retrieving raw read data from Slim
+####Retrieving raw read data from Slim (UC Davis Genome Center Server)
 
 Shell scripts: 
 	
@@ -211,12 +211,12 @@ After running trimmomatic on the raw data, I moved the raw data that I re-downlo
 
 FastQC was performed on trimmed reads. 
 
-	/home/jajpark/niehs/results/nebtrim_fastqc/
+	~/niehs/results/nebtrim_fastqc/
 
 The resulting FastQC files are found in: 
 
-	/home/jajpark/niehs/results/nebtrim_fastqc/lanes_1-2/
-	/home/jajpark/niehs/results/nebtrim_fastqc/lanes_3-8/
+	~/niehs/results/nebtrim_fastqc/lanes_1-2/
+	~/niehs/results/nebtrim_fastqc/lanes_3-8/
 	
 
 ###Downloading reference genome
@@ -342,7 +342,7 @@ Use samtools to:
 Use RSeQC to get more alignment stats. 
 
 
-###Visualizing alignment stats
+###Visualize alignment stats
 I wanted to know mapping efficiency across all my samples, so I parsed out alignment statistics from the STAR final log out files: 
 
 	/home/jajpark/niehs/scripts/star_out_parse.py
@@ -464,21 +464,155 @@ I used samtools merge in the following script and moved all merged bam files int
 	
 	
 
-
 (Sometime in August, using TopHat2 aligned sam files)
 I used samtools to sort and index my accepted_hits.bam file. 
 Then I used the bedtools genomecov ()genomeCoverageBed) package to calculate coverage across my reference genome. (Post-edit: wasn't sure if I got it to work and didn't really know what I was looking at and abandoned it for the time being. )
 I used the UCSC genome browser and IGV to visualize this data. 
 
 ###Perform annotation-based quality control
-* RSeQC
-* Picard's CollectRNASeqMetrics
+Last modified: 14 December, 2016
 
-###Perform quantitation of gene expression
-* HTSeq
+There are several tools available for doing some post-alignment QC. They seem to offer similar things, but require different file formats. Picard's CollectRNASeqMetrics uses a REF_FLAT file which I have no idea how to obtain from the GFF files I downloaded from NCBI, so I decided not to go down that route. 
 
+[RSeQC](http://rseqc.sourceforge.net/) is presented at length in the textbook I'm using (RNA-Seq Data Analysis: A Practical Approach, by Korpelainen et al.), and it's available on the Farm cluster. I'll go ahead and use that. 
+
+There are 4 [input file formats](http://rseqc.sourceforge.net/#input-format) accepted: bed, bam/sam, fasta, and chromosome size file. I don't know how this is going to work if I don't have chromosome-level annotations, but I'll worry about that when I get there. 
+
+BAM files must be sorted and indexed. 
+
+		0008a_sortindex.sh
+		
+#####Converting GFF to BED
+I have to first convert my GFF/GTF annotation files to BED. Most people use awk to make their BED files from GFF, but because the RSeQC program needs a 12-column bed file, I decided to use a tool called [bedops](http://bedops.readthedocs.io/en/latest/index.html) for this task. 
+
+I installed bedops using brew on 14 Dec, 2016
+
+	brew install homebrew/science/bedops
+	
+Bedops was installed in:
+
+	~/linuxbrew/.linuxbrew/Cellar/bedops/2.4.20/bin
+
+The command used to convert gff to bed:
+	
+	convert2bed -i gff -o bed <~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff> ~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.bed
+
+#####Using RSeQC
+
+RSeQC has been installed on the farm, and is available as a module. 
+It's important to load all the modules:
+		
+		module load python R RSeQC
+		
+However, the code for installation test and any other command on RSeQC is throwing an error message: 
+
+		Illegal instruction
+		
+I sent an email to Terri for help. 
+
+[Edit: it turns out I was sourcing python from my local home directory, so I got rid of python from local and it solved the problem]
+
+Eventually I'll use: 
+		
+		geneBody_coverage.py -r ~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.bed -i /results/alignments/star_heteroclitus_annot_161116/merge/ -o rseqc/output
+		
+###Make read counts -- quantitate!
+There are many different ways to quantitate read counts/generate read count tables. 
+
+Salmon requires that aligned files (SAM/BAM) are generated using a reference transcriptome. I've already mapped my reads to a reference genome, so I need to work around this in order to use the tool. 
+I
+1. Convert bam to fastq file
+	* bedtools: sort bam by read group or name using samtools sort -n 
+	
+			$ samtools sort -n aln.bam aln.qsort
+
+			$ bedtools bamtofastq -i aln.qsort.bam \
+                      -fq aln.end1.fq \m
+                      -fq2 aln.end2.fq
+
+2. Run Salmon in the light-mapping mode with reference transcriptome
+
+For future DE experiments, it would be better just to run salmon right after raw read QC, since it bypasses the need for aligners via its quasi-mapping function (theoretically). For fun, I'll compare read count tables and the amount of time it takes between HTSeq and Salmon. 
+
+For now I don't want to waste anymore time re-generating fastq files and having salmon re-map my reads, so I'll move forward with HTSeq, which has been around for much longer and is already an established method for generating read counts. 
+
+The command and options for HTseq are below: 
+htseq-count --format=bam -i Dbxref -t exon $f $gff > ${OUTDIR}/$count
+
+Because my annotation is a GFF and Htseq looks by default at GTF files, the default id_attribute argument is "gene_id". HOwever, my gff file doesn't have that, and the most informative field in column 9 is "Dbxref". 
+
+I used "ID" at first, but later realized that that field is rather uninformative. From the [NCBI Refseq GFF3 readme](ftp://ftp.ncbi.nlm.nih.gov/genomes/README_GFF3.txt): 
+
+	`ID
+	
+	A unique identifier for the feature. Most IDs are generated on-the-fly 
+	   during file generation. They are not intended to be used as stable feature
+	   identifiers, and they are likely to change between annotation versions. 
+	   Multiple rows with the same ID designate a single feature that is 
+	   composed of multiple parts, most common for CDSes and multi-exon alignments 
+	   but possible for other feature types as well. Note other attributes such as 
+	   gene symbols, GeneIDs, and transcript or protein accessions may occur on 
+	   multiple features, whereas the ID is globally unique for an individual file.`
+   
+   
+	Parent
+	   ID of the parent of the feature
+	   
+	Dbxref
+	   a set of comma-separated tag:ID pairs corresponding to the /db_xref
+	   qualifiers provided in the source annotation. Note database IDs can contain
+	   colons, so a format such as "HGNC:HGNC:1100" is expected and should be 
+	   parsed on the first colon. URLs corresponding to specific database tags are 
+	   available at:
+	   https://www.ncbi.nlm.nih.gov/genbank/collab/db_xref   
+	   
+	   Most Dbxref tags known to NCBI are also available in the list provided by
+	   the Gene Ontology Consortium at:
+	   ftp://ftp.geneontology.org/pub/go/doc/GO.xrf_abbs
+	
+However, not all exons have Dbxref fields, although every entry in the gff has an ID field. All genes have Dbxref fields, but I'm not sure how many reads I'll miss by aligning to genes. This will be my temporary solution:
+
+1. Generate read counts using --type=exon ... -i ID
+2. Generate read counts uisng --type=gene ... -i Dbxref
+
+That way I'll at least have one read counts table with a lot of hits, and I can see if I can look up annotation information from matching ID values in the gff file, and I can have another read counts table with informative annotation tags. 
+
+...
+
+A better solution to this would be to find all exons with missing Dbxref fields and delete them from the annotation file, then run htseq again. 
+
+- "awk" or "grep" to find exons with Dbxref in same line
+- check how many there are from above with total exons
+- if its' not too much, then pipe all exon lines with dbxref to new annotation file. 
+
+
+		grep -c exon GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff 
+		#416781
+		
+		grep -i exon GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff > 17_01_04_exons.gff
+		
+		grep -v -i -c dbxref 17_01_04_exons.gff 
+		#24
+		
+		grep -v -i dbxref 17_01_04_exons.gff > 17_01_04_questionable_exons.gff
+		
+		grep -i dbxref 17_01_04_exons.gff > 17_01_04_dbxref_exons.gff
+
+The exons missing dbxref annotations all produce tRNAs, and can be viewed in `~/niehs/refseq/17_01_04_questionable_exons.gff`. 
+
+I have a modified gff file containing just exons with dbxref annotations, found in `~/niehs/refseq/17_01_04_dbxref_exons.gff`. 
+
+I also made a modified gff file of all features minus the questionable exons in `~/niehs/refseq/170104_fhet_genomic.gff`
+
+	grep -Fwv -f 17_01_04_questionable_exons.gff GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff > 170104_fhet_genomic.gff
+	
+I ran htseq again using the modified gff file ``~/niehs/refseq/170104_fhet_genomic.gff` using: 
+
+		0009c_htseqcount_dbxrefexons.sh
+		
+		
 ###Differential Expression Analysis
-* edgeR or DESeq2? What are the differences and why are they important?
+* limma voom
 
 ###
 
