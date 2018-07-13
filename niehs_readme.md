@@ -4,8 +4,6 @@ Project: NIEHS UCD-LSU
  
 RNASeq Analysis
 
-Last modified: January 2018
-
 ### Experimental Design:
 * 5 populations of Fundulus grandis were collected across the Gulf of Mexico, only ARS RNA-seq data so far: 
    * ARS: Aquatic Research Station, aquacultured pop in LA
