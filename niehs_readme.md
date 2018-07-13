@@ -6,7 +6,7 @@ RNASeq Analysis
 
 Last modified: January 2018
 
-###Experimental Design:
+### Experimental Design:
 * 5 populations of Fundulus grandis were collected across the Gulf of Mexico, only ARS RNA-seq data so far: 
    * ARS: Aquatic Research Station, aquacultured pop in LA
    * GT: Grand Terre, recently oiled pop in LA
@@ -30,7 +30,7 @@ Last modified: January 2018
 * Samples 75, 145, 146, and 163 should be excluded from analysis due to barcoding error (see "Identifying samples that didn't get sequenced in the first lane trial")
 
 
-###General Pipeline:
+###  General Pipeline:
 
 * [Download reference genome](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#downloading-reference-genome)
 * [Retrieve raw reads from the sequencing facility](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#retrieving-raw-read-data-from-slim)
@@ -42,7 +42,7 @@ Last modified: January 2018
 * [Post-alignment Quality Control](https://github.com/janejpark/niehs/blob/master/niehs_readme.md#post-alignment-quality-control)
 
 
-####Retrieving raw read data from Slim (UC Davis Genome Center Server)
+#### Retrieving raw read data from Slim (UC Davis Genome Center Server)
 
 Shell scripts: 
 	
@@ -53,7 +53,7 @@ Command to execute bash script on Farm cluster:
 
 	sbatch -p hi getdata.sh
 
-######Downloading lanes 3-8:
+###### Downloading lanes 3-8:
 15 September 2016
 
 Used a series of wget bash scripts to download each lane. 
@@ -71,7 +71,7 @@ And re-downloaded the data into:
 		/home/jajpark/niehs/Data/lanes_3-8/ReDLData/
 		
 
-####Identifying samples that didn't get sequenced in the first lane trial
+#### Identifying samples that didn't get sequenced in the first lane trial
 
 Tues July 12, 2016
 
@@ -114,7 +114,7 @@ Sample 6 and 94 were made with barcodes i712 and i508, NOT i701 and i506 like th
 Samples removed from analysis: 
 75, 145, 146, 163
 
-###Running FastQC
+### Running FastQC
 FastQC is a raw read quality assessment command line tool.
 I loaded the program using:
 
@@ -130,7 +130,7 @@ Results located in
 
 	/home/jajpark/niehs/results/pretrimfastqc/lanes_1-2/
 
-#####Lanes 3-8:
+### ##Lanes 3-8:
 
 	0001a_fastqc.sh
 	...
@@ -142,7 +142,7 @@ Results located in:
 		
 		
 
-###Retrieving reads from Undetermined Samples file, a.k.a. demultiplexing indexed reads
+### Retrieving reads from Undetermined Samples file, a.k.a. demultiplexing indexed reads
 Because I used the wrong barcodes for Samples 0006 and 0094, I used the `fastx barcode splitter` command line tool. 
 
 		demultiplex.sh
@@ -167,7 +167,7 @@ So then I used a grep command pipeline to look for the barcode sequence in the h
 		
 Ultimately, the genome center re-did the demultiplexing. The new files for all samples ended up being ~1-2MB larger than the first demultiplexing attempt, so I updated all my data with the newly demultiplexed reads. 
 
-###Trim short reads with trimmomatic
+### Trim short reads with trimmomatic
 Reads were trimmed lightly using Trimmomatic command line tool. 
 
 		trimmomatic.sh
@@ -206,7 +206,7 @@ I compared the two .fa files and found the adapter sequences are different. I'm 
 The final script used to trim my reads is found at:
 `/home/niehs/scripts/trimmomaticNEB.sh`
 	
-#####Notes on doing this on Lanes 3-8:
+##### Notes on doing this on Lanes 3-8:
 September 13, 2016
 
 I changed the name of the directories containing the raw data from lanes 1-2 and lanes 3-8. These must remain separated because lanes 1-2 are denoted with L005 and L006, respectively, and the last two lanes in lanes_3-8 are also denoted with these same identifiers. 
@@ -235,7 +235,7 @@ The absolute path for trimmed data from lanes 3-8:
 After running trimmomatic on the raw data, I moved the raw data that I re-downloaded for Lane 3 into /nebtrim_lanes_3-8. All raw data in the larger folder are now good to use. 
 	
 	
-###FastQC on trimmed data
+### FastQC on trimmed data
 
 FastQC was performed on trimmed reads. 
 
@@ -247,7 +247,7 @@ The resulting FastQC files are found in:
 	~/niehs/results/nebtrim_fastqc/lanes_3-8/
 	
 
-###Downloading reference genome
+### Downloading reference genome
 For some reason ftp wasn't working as I expected on the farm cluster, so I used ftp on my personal laptop to download the latest reference genomes from ncbi (ftp://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_other/Fundulus_heteroclitus/latest_assembly_versions/GCF_000826765.1_Fundulus_heteroclitus-3.0.2):
 
 		ftp ftp://ftp.ncbi.nlm.nih.gov
@@ -256,7 +256,7 @@ For some reason ftp wasn't working as I expected on the farm cluster, so I used 
 		
 Then I used scp to move all the files into my account on farm. 
 
-###Mapping reads to reference genome using Bowtie2 and TopHat2
+### Mapping reads to reference genome using Bowtie2 and TopHat2
 
 1. I built indexes using bowtie2 from the reference genome: *genomic.fna.gz
 2. I used bowtie2 to align my short reads to the f_heteroclitus reference genome. 
@@ -294,7 +294,7 @@ I ended up getting something like ~45% concordant pair alignment rate, which is 
 See: alignment summary files under each sample directory in /home/jajpark/niehs/results/alignments/tophat/
 
 
-###Mapping reads to reference genome and transcriptome using STAR
+### Mapping reads to reference genome and transcriptome using STAR
 
 I decided to try using STAR, which is apparently very fast and ascertains splice junctions on its own (independent of annotations). I wanted to compare alignment rates between a reference genome from NCBI refseq, and a reference transcriptome that Noah had used in the past for his RNAseq work. 
 
@@ -306,10 +306,11 @@ Then I started the alignment processes using each:
 		stargenomicalign.sh
 		startranscralign.sh		
 		
-######Edit (Sep 30, 2016)######
+###### Edit (Sep 30, 2016)
+
 STAR aligner produces much higher alignment rates (~80%) and only took a few hours to run. I'll move forward with these alignments for my analyses. 
 
-######Edit:16 November, 2016#####
+###### Edit:16 November, 2016
 
 I didn't include genome annotation in the index build and mapping, and the manual says it's important to include it for improving accuracy of mapping. I re-built my genome index using the annotation file: 
 
@@ -319,7 +320,7 @@ using the following script:
 
 	0003c_starindex_hexannotate.sh
 		
-#####Mapping reads from Lanes 3-8 to reference F. heteroclitus genome and F. grandis genome (Sep 26, 2016)
+### Mapping reads from Lanes 3-8 to reference F. heteroclitus genome and F. grandis genome (Sep 26, 2016)
 
 I indexed the referenge genome from F. grandis:
 
@@ -336,18 +337,18 @@ I used the following script to align lanes 3-8 to the F. heteroclitus reference 
 
 		0004b_staralign_het_3-8.sh
 		
-######Edit: 16 November 2016
+###### Edit: 16 November 2016
 I realigned using the genome index generated with annotation file (see edit in above section).
 
 	0004d_staralign_hetannot_3-8.sh
 	0004d_staralign_hetannot_1-2.sh
 
-######Edit: 	28 November 2016
+###### Edit: 28 November 2016
 In future alignments, use the --outSAMattrRGline flag with STAR. 
 You can also use the --outSAMtype flag to specify SAM/BAM output with/out sorting. 
 	
 
-#####Output(September 30, 2016)
+##### Output(September 30, 2016)
 
 The output is multiple files: 
 
@@ -358,7 +359,7 @@ The output is multiple files:
 * out.tab
 * STARtmp
 
-###Alignment stats
+### Alignment stats
 September 30, 2016
 
 Use samtools to: 
@@ -370,7 +371,7 @@ Use samtools to:
 Use RSeQC to get more alignment stats. 
 
 
-###Visualize alignment stats
+### Visualize alignment stats
 I wanted to know mapping efficiency across all my samples, so I parsed out alignment statistics from the STAR final log out files: 
 
 	/home/jajpark/niehs/scripts/star_out_parse.py
@@ -382,7 +383,7 @@ The compiled R notebook for generating these graphs are found on local:
 	~/GoogleDrive/LabNotebook/NIEHS_LSU_UCD/rnaseq/Ranalysis/alignmentstats_bargraph.html
 	
 
-#####Compare alignment stats between F. grandis and F. heteroclitus alignments
+##### Compare alignment stats between F. grandis and F. heteroclitus alignments
 (September 26, 2016)
 
 Aligning to F. grandis genome yielded slightly higher alignment rates: 
@@ -408,7 +409,7 @@ Aligning to F. grandis genome yielded slightly higher alignment rates:
 Not sure how much of the grandis genome is annotated (need to ask Cole Matson). (Post-edit 11/14/16: The genome isn't annotated yet.) Just in case I'll have alignments using both heteroclitus and grandis genomes. 
 
 
-#####Compare alignment stats between F. heteroclitus without and with annotation included in STAR genome indexing
+##### Compare alignment stats between F. heteroclitus without and with annotation included in STAR genome indexing
 (November 18, 2016)
 
 I re-did the alignments using a genome index I built including .gff file. I compared the summary statistics using the same R script (alignmentstats_bargraph.R) as above:
@@ -424,7 +425,7 @@ I re-did the alignments using a genome index I built including .gff file. I comp
 	
 I have slightly higher alignment rate using the annotation than without. 
 
-###Visual QC of alignment
+### Visual QC of alignment
 
 
 I got IGV to work, but I'm not sure I'm using the right files because I can't make any sense of what's going on. I don't have chromosomes, instead I'm getting list of scaffolds. (Post edit 11/14/16: It's because the annotations are only up to the scaffold level.)
@@ -441,7 +442,7 @@ OK so I restarted IGV and somehow the reference genome fixed itself and I can fi
 Post-edit: 
 Tablet is much easier to use. 
 
-###Post-Alignment Quality Control 
+### Post-Alignment Quality Control 
 15 November, 2016
 
 The first thing I need to do is merge bam files according to Sample ID across multiple lanes. 
@@ -500,7 +501,7 @@ I used samtools to sort and index my accepted_hits.bam file.
 Then I used the bedtools genomecov ()genomeCoverageBed) package to calculate coverage across my reference genome. (Post-edit: wasn't sure if I got it to work and didn't really know what I was looking at and abandoned it for the time being. )
 I used the UCSC genome browser and IGV to visualize this data. 
 
-###Perform annotation-based quality control
+### Perform annotation-based quality control
 Last modified: 14 December, 2016
 
 There are several tools available for doing some post-alignment QC. They seem to offer similar things, but require different file formats. Picard's CollectRNASeqMetrics uses a REF_FLAT file which I have no idea how to obtain from the GFF files I downloaded from NCBI, so I decided not to go down that route. 
@@ -513,7 +514,7 @@ BAM files must be sorted and indexed.
 
 		0008a_sortindex.sh
 		
-#####Converting GFF to BED
+##### Converting GFF to BED
 I have to first convert my GFF/GTF annotation files to BED. Most people use awk to make their BED files from GFF, but because the RSeQC program needs a 12-column bed file, I decided to use a tool called [bedops](http://bedops.readthedocs.io/en/latest/index.html) for this task. 
 
 I installed bedops using brew on 14 Dec, 2016
@@ -528,7 +529,7 @@ The command used to convert gff to bed:
 	
 	convert2bed -i gff -o bed <~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.gff> ~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.bed
 
-#####Using RSeQC
+##### Using RSeQC
 
 RSeQC has been installed on the farm, and is available as a module. 
 It's important to load all the modules:
@@ -547,7 +548,7 @@ Eventually I'll use:
 		
 		geneBody_coverage.py -r ~/niehs/refseq/GCF_000826765.1_Fundulus_heteroclitus-3.0.2_genomic.bed -i /results/alignments/star_heteroclitus_annot_161116/merge/ -o rseqc/output
 		
-###Make read counts -- quantitate!
+### Make read counts -- quantitate!
 There are many different ways to quantitate read counts/generate read count tables. 
 
 Salmon requires that aligned files (SAM/BAM) are generated using a reference transcriptome. I've already mapped my reads to a reference genome, so I need to work around this in order to use the tool. 
@@ -646,7 +647,7 @@ __27 February, 2017:__
 
 Re-did count summarization using HTSeq on gene ID and featurecounts.
 
-###Differential Expression Analysis
+### Differential Expression Analysis
 * limma voom: see 
 
 		0010a_edgeR_htseq.R
@@ -842,203 +843,7 @@ __14 April 2017: Comparing single model vs. stage-specific model__
 
  8 of 214 DGE detected at st.19 for PTxDEV interaction using the single model are filtered out initially for st19-specific analysis
 
-		filtered[singlemodel19]
-	 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA> 105933200 105923877      <NA>      <NA>      <NA> 
-	       NA        NA        NA     FALSE     FALSE        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA> 105919167      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA     FALSE        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA> 105918916      <NA>      <NA>      <NA> 105921214      <NA>      <NA> 
-	       NA     FALSE        NA        NA        NA     FALSE        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA> 105937433      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA     FALSE        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 105924635 
-	       NA        NA        NA        NA        NA        NA        NA     FALSE 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA        NA        NA        NA        NA        NA        NA        NA 
-	     <NA>      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 105934350 
-	       NA        NA        NA        NA        NA        NA        NA     FALSE 
-	     <NA> 105924224      <NA>      <NA>      <NA>      <NA>      <NA>      <NA> 
-	       NA     FALSE        NA        NA        NA        NA        NA        NA 
-	
-
-The DGE found in single model at st. 19 are still found in topTable of 19-specific model, but with higher p-values: 
-
-	wptxdr.st19[singlemodel19,]
-	                w56          w32         w10     AveExpr         F      P.Value
-	105940024 -2.380071 -0.841288149 -1.37409455  8.33276829  6.150412 1.164908e-03
-	105926074 -4.083222 -0.175477421  0.17725184  3.90948893 11.601807 6.169315e-06
-	105929269 -4.144292 -0.670081535 -2.22554907  5.53802597  7.257084 3.705766e-04
-	105935506 -4.371201 -0.552319404 -0.34711327  3.26910012  9.964324 2.691964e-05
-	105916753 -3.439288 -1.170618602 -2.60775414  5.48071557  7.560671 2.727583e-04
-	105921814 -2.858100 -0.350647866 -0.83768201  6.71432198  5.244259 3.077477e-03
-	105917783  5.264738  3.218965987  3.12657191  0.93730293  6.692039 6.613412e-04
-	105936203 -5.633676 -1.275769203 -2.16301464  2.88375038  7.496024 2.910731e-04
-	105918068  4.736557  0.200447014  2.43344660 -0.34411087  8.378453 1.213953e-04
-	105918932 -3.006710  0.035386698 -0.40523923  5.98283244  6.725668 6.387253e-04
-	105936064 -2.206467 -0.004351944 -0.81138355 11.14682889  6.712577 6.474326e-04
-	NA               NA           NA          NA          NA        NA           NA
-	105917711 -2.743697 -0.798954655 -0.86656879  5.38860281  5.085095 3.661627e-03
-	105923711 -4.567731 -1.470341159 -3.07002230  1.19096961  8.106706 1.584597e-04
-	105940298  5.404554  0.974287128  2.38247079  1.21928557  5.198513 3.234796e-03
-	NA.1             NA           NA          NA          NA        NA           NA
-	105926382 -1.879107  0.311872563  0.08653521  8.76183617  6.342597 9.517316e-04
-	NA.2             NA           NA          NA          NA        NA           NA
-	105936384 -3.360840 -0.199152126 -0.58409905  5.42166430  5.611388 2.068512e-03
-	105926618 -4.682475 -2.134124815 -2.09882531  0.39511318  7.824023 2.096337e-04
-	105928627  4.228934  2.225855386  0.79318643  1.50023382  4.833520 4.828481e-03
-	105939954 -2.051219 -0.054176236 -0.33459690  6.60720400  5.075468 3.700432e-03
-	105918611 -3.966311 -2.678349139 -2.66785799  2.04042711  4.853451 4.723409e-03
-	105938803 -1.519920 -0.041378403 -0.03537001  6.54783057  5.356089 2.725258e-03
-	105918296 -2.095529 -0.128588106 -0.04855670  7.30081626  5.460203 2.434696e-03
-	105923230  4.779968  2.779986917  2.42271664 15.15362804  7.872553 1.997605e-04
-	105935429 -2.205871 -0.089930202 -1.39493181  4.91184570  5.914457 1.495797e-03
-	105934905  3.997112 -0.089504664  1.40945563 -0.12459194  7.474900 2.973299e-04
-	105921324 -1.870100  0.216464822 -0.11535564  6.78536557  6.999820 4.817111e-04
-	105938070  4.044256  1.807558288  1.42975217  0.05653822  6.286055 1.009898e-03
-	105916657 -3.392817 -1.311150686 -2.57800472  3.16869824  5.266047 3.005345e-03
-	105918462 -3.987413 -0.038702340 -2.48793030  3.10714129  5.877350 1.556075e-03
-	105933236 -1.956058  0.277259942  0.22191842  7.97596576  5.916471 1.492596e-03
-	105931628  2.537418  1.334719935  2.14433453  4.66668320  6.558469 7.596674e-04
-	105925349  4.799892  1.327352585  2.20585855  0.85282296  6.122063 1.200300e-03
-	105886209  4.463079  2.441680059  1.65619811  0.31005263  6.962024 5.007359e-04
-	105929171  4.659262  0.929512905  3.21815714  0.09585575  6.816052 5.818188e-04
-	105931640 -3.270716 -0.765095467 -2.51236709  4.79799251  5.330492 2.802026e-03
-	105927004 -3.966843 -3.234033920 -2.46059103  2.73606660  7.846508 2.049979e-04
-	105927694 -1.926792 -0.083382450 -0.32325668  6.52395494  5.921292 1.484961e-03
-	105932372  4.965309  0.217098262  2.57680149  0.21146563  8.268232 1.352089e-04
-	NA.3             NA           NA          NA          NA        NA           NA
-	105918313 -1.828203  0.428403769  0.09098286  9.00115777  7.195795 3.943859e-04
-	NA.4             NA           NA          NA          NA        NA           NA
-	105925114  4.794886  0.892680363  2.09289279  0.91718229  7.525443 2.825857e-04
-	105920226 -3.717002  0.023265775  0.31638732  0.93478368  7.423070 3.132780e-04
-	105922345  4.794898  0.447190649  0.10878140  1.96096370  6.873049 5.486526e-04
-	105918335  4.101253  1.525985334  1.58247479  0.04448467  5.164486 3.357173e-03
-	NA.5             NA           NA          NA          NA        NA           NA
-	105919032 -3.814439 -0.766181087 -3.19663083  2.07181065  6.141018 1.176515e-03
-	105926173 -2.520213  0.095594901 -0.74323137  6.87554347  5.442056 2.482941e-03
-	105934678 -3.825570 -0.761196957 -2.49518500  2.71697619  6.121218 1.201372e-03
-	105937838 -3.615060 -2.001878105 -3.45253867  1.92867423  5.667799 1.946887e-03
-	105916175 -1.523493  0.565939724 -0.27442566  8.49399904  5.596602 2.101671e-03
-	105918668  5.937573  2.388462751  2.92298529  1.10462638  6.274197 1.022556e-03
-	105939523 -1.397556  0.297507713  0.17049418 12.20984487  8.251852 1.373966e-04
-	105928910 -2.011146  0.190464108  0.32695374  7.03247930  5.628630 2.030526e-03
-	105930460  3.754842  0.150155222  2.23763617 -0.13865266  6.249826 1.049088e-03
-	105929494 -3.745407 -0.418131058 -2.53093646  2.37282570  5.323323 2.823925e-03
-	105939619 -2.479176 -0.056863520  0.41072467  5.06028822  7.862537 2.017582e-04
-	105928269  4.793336 -1.147412330  0.25884165  0.53007951 11.163697 9.079560e-06
-	105936812  5.581124  2.019610825  3.22774404  0.88545532  5.406296 2.580918e-03
-	105930187  4.278393  1.193222509  1.26285165  0.45120737  5.545075 2.221575e-03
-	105917484 -1.788396  1.017537439  0.28505617  8.68448428  7.114706 4.283425e-04
-	105939751  4.241675 -0.546720486  1.47284390  0.80316396  5.639692 2.006536e-03
-	NA.6             NA           NA          NA          NA        NA           NA
-	105923417 -1.988549 -0.198200193 -0.07081183  8.70920137  5.250195 3.057648e-03
-	           adj.P.Val
-	105940024 0.12953385
-	105926074 0.06729164
-	105929269 0.10113945
-	105935506 0.06729273
-	105916753 0.10113945
-	105921814 0.15586477
-	105917783 0.11310969
-	105936203 0.10113945
-	105918068 0.08434698
-	105918932 0.11182218
-	105936064 0.11246107
-	NA                NA
-	105917711 0.16614819
-	105923711 0.08715312
-	105940298 0.15878648
-	NA.1              NA
-	105926382 0.12855228
-	NA.2              NA
-	105936384 0.14872020
-	105926618 0.09512235
-	105928627 0.18071159
-	105939954 0.16722644
-	105918611 0.17921237
-	105938803 0.15497575
-	105918296 0.15497575
-	105923230 0.09495675
-	105935429 0.14193664
-	105934905 0.10113945
-	105921324 0.10503172
-	105938070 0.12855228
-	105916657 0.15586477
-	105918462 0.14257421
-	105933236 0.14193664
-	105931628 0.11894680
-	105925349 0.12953385
-	105886209 0.10503172
-	105929171 0.10910201
-	105931640 0.15497575
-	105927004 0.09495675
-	105927694 0.14193664
-	105932372 0.08715312
-	NA.3              NA
-	105918313 0.10199439
-	NA.4              NA
-	105925114 0.10113945
-	105920226 0.10113945
-	105922345 0.10910201
-	105918335 0.16220281
-	NA.5              NA
-	105919032 0.12953385
-	105926173 0.15497575
-	105934678 0.12953385
-	105937838 0.14851680
-	105916175 0.14929249
-	105918668 0.12855228
-	105939523 0.08715312
-	105928910 0.14851680
-	105930460 0.12953385
-	105929494 0.15535457
-	105939619 0.09495675
-	105928269 0.06729164
-	105936812 0.15497575
-	105930187 0.15191989
-	105917484 0.10199439
-	105939751 0.14851680
-	NA.6              NA
-	105923417 0.15586477
+The DGE found in single model at st. 19 are still found in topTable of 19-specific model, but with higher p-values.
 
 * So it looks like it comes down to the way test statistics are generated between the two models. A few genes are excluded in the stage-specific model that would otherwise still be included in the single model. Could this be a cause of contrasts.fit? 
 
@@ -1253,9 +1058,9 @@ Data frames of DGE with adjustd pvalues are stored by coefficient in LabNotebook
 Next Steps:
 
 * Perform cluster analysis on list of genes
-* 
 
-###Using DAVID: functional annotation tool
+
+### Using DAVID: functional annotation tool
 
 * Results from DAVID GO enrichment analysis found in:
 
@@ -1263,7 +1068,7 @@ Next Steps:
 and labeled with _DAVID.txt
 
 
-###Update: Which RNA-seq analysis tool to use? 19 October 2017
+### Update: Which RNA-seq analysis tool to use? 19 October 2017
 
 David Rocke's method: 
 
@@ -1276,7 +1081,7 @@ Gerald Quon's counter-argument:
 
 Gerald Quon disagreed with David Rocke's suggestion to log transform manually and use lm(), because we actually don't have enough replicates to justify using that method. Yes, we have many samples for the overall experiment, but because of all the variables in our experiment, we have diminished power for our analysis (Tony, please feel free to elaborate further on this). 
 
-##On normalizing read counts for gene length: 
+#### On normalizing read counts for gene length: 
 
 From David Rocke, 1/15/2018:
 
@@ -1297,8 +1102,8 @@ It's still a good idea to use Salmon, because it can reduce systemic errors and 
 Additionally, transcript-level estimates (which Salmon provides) [can improve gene-level inferences](https://f1000research.com/articles/4-1521/v2). 
 
 
-##Re-doing read quantification using salmon
-####10 January 2018
+## Re-doing read quantification using salmon
+#### 10 January 2018
 
 Differences between [alignment and mapping](https://www.biostars.org/p/180986/)
 

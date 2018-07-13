@@ -8,14 +8,14 @@ output:
     keep_md: yes
     toc: yes
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 2018 January 31
 
 Jane Park
 
-##Libraries
+## Libraries
 
 ```{r libraries}
 library(readxl)
@@ -42,7 +42,7 @@ setwd("~/Documents/NIEHS_LSU_UCD/rnaseq/")
 ```
 
 
-##Import quantification tables 
+## Import quantification tables 
 
 Name quantification files path: 
 ```{r}
@@ -54,7 +54,7 @@ names <- gsub("_quant", "", files_list)
 names(files) <- names
 ```
 
-##Associate transcripts to gene IDs 
+## Associate transcripts to gene IDs 
 
 I'm using the gene model annotation file from supplementary materials of Noah Reid's 2016 paper, ["The genomic landscape of rapid repeated evolutionary adaptation to toxic pollution in wild fish"](http://science.sciencemag.org/content/suppl/2016/12/07/354.6317.1305.DC1)
 
@@ -101,7 +101,7 @@ y$samples$trt <- with(y$samples, paste(group, stage, exposure, sep="."))
 ```
 
 
-##Subsetting and filtration
+## Subsetting and filtration
 
 First, exclude Hatch, NonHatch, and Stage 19 56% [WAF] Replicate # 4 and 5 (outlier) samples, and extra Stage 19 Control embryo: 
 ```{r}
@@ -118,7 +118,7 @@ zz <- y
 ```
 
 
-###Filter out lowly expressed reads
+### Filter out lowly expressed reads
 
 Filter all samples based on counts greater than 5 in at least 4 replicate samples of 1 treatment group: 
 
@@ -149,7 +149,7 @@ write.table(filt_genes, file="~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180322_
 ```
 
 
-##Normalize and Log Transform Read Counts
+## Normalize and Log Transform Read Counts
 
 Optimal constant is 6:
 
@@ -158,7 +158,7 @@ Optimal constant is 6:
 trans <- log2(y$counts+8)
 ```
 
-####Visualize mean-variance trend: 
+#### Visualize mean-variance trend: 
 ```{r}
 #Calculate mean and variance for each gene for every treatment group (mean gene expression for every unique treatment, e.g. C.35.00)
 ttrans <- t(trans)
@@ -182,7 +182,7 @@ dev.off()
 ```
 
 
-####Normalize log-transformed counts for all samples: 
+#### Normalize log-transformed counts for all samples: 
 
 ```{r}
 mean_counts <- colMeans(trans)
@@ -227,7 +227,6 @@ print(slope)
 
 ```{r}
 # MDS Plot
-
 par(mfrow=c(1,1))
 group <- y$samples$group
 stage <- y$samples$stage
@@ -253,7 +252,7 @@ col.treat <- as.character(col.treat)
 plotMDS(y, labels=treats, col=col.stage, dim=c(1,2))
 ```
 
-Save all log-transformed & normalized counts and sample information for whole data set and subsets: 
+## Save all log-transformed & normalized counts and sample information for whole data set and subsets: 
 
 ```{r}
 #Normalized counts and samples for whole data set: 
@@ -264,7 +263,177 @@ write.table(y$samples, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180205_allsta
 
 ```
 
-##Stage-Specific Analyses
+## All-stages DEG Analysis
+
+```{r}
+for (j in 1:ncol(stages.dge[[i]][,1:d])) {
+    g <- which(rownames(pdat.stages[[i]])==colnames(stages.dge[[i]])[j])
+    l <- lm(formula=stages.dge[[i]][,j] ~ group*exposure, data=stages.dge[[i]])
+    a <- anova(l)
+    p <- a$`Pr(>F)`[1:3]
+    pdat.stages[[i]][g,] <- p
+  }
+  
+  pdat.stages[[i]] <- as.data.frame(pdat.stages[[i]])
+  names(pdat.stages[[i]]) <- gsub(":", "_", names(pdat.stages[[i]]))
+  
+#Set up data for lm(): 
+y.deg <- t(y$counts)
+y.deg <- as.data.frame(y.deg)
+y.deg <- TreatNames_sub(y.deg)
+
+#Set up data frame to store p-values: 
+d <- dim(y.deg)[2]-5
+glist.y <- colnames(y.deg[,1:d])
+cofs <- c("group", "exposure", "stage", "group:exposure", "group:stage", "exposure:stage", "group:exposure:stage")
+pdat.y <- matrix(nrow=length(glist.y), ncol=length(cofs))
+colnames(pdat.y) <- cofs
+rownames(pdat.y) <- glist.y
+
+#Run lm() on each gene: 
+for (i in 1:ncol(y.deg[,1:d])) {
+	g <- which(rownames(pdat.y)==colnames(y.deg)[i])
+	l <- lm(formula=y.deg[,i] ~ group*exposure*stage, data=y.deg)
+	a <- anova(l)
+	p <- a$`Pr(>F)`[1:7]
+	pdat.y[g,] <- p 
+}
+
+#Save p-values: 
+pdat.y <- as.data.frame(pdat.y)
+names(pdat.y) <- gsub(":", "_", names(pdat.y))
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180623_allstages_anova_unadj_pvalues_noouts.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+
+```
+
+#### Adjust p-values for FDR
+
+```{r}
+#Vectorize and apply p.adjust to pdat.y dataframe
+pval_all <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180623_allstages_anova_unadj_pvalues_noouts.csv", header=TRUE)
+
+adj_pval_all <- setDT(pval_all, keep.rownames=TRUE)
+colnames(adj_pval_all)[1] <- "Gene"
+adj_pval_all <- adj_pval_all %>% 
+	gather(`group`, `exposure`, `stage`, `group_exposure`, `group_stage`, `exposure_stage`, `group_exposure_stage`,
+		key = "cof", value = "pvals")
+
+adj_pval_all$adj_pvals <- p.adjust(adj_pval_all$pvals, method="fdr")
+
+#Filter pvals by DEG (p < 0.05): 
+deg_allstages <- adj_pval_all[adj_pval_all$adj_pvals <= 0.05,]
+
+#Write adjusted pvalues to csv:
+write.table(adj_pval_all, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_fdradj_pval_allstages.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+
+write.table(deg_allstages, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_fdradj_p005_DEG_allstages.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+```
+
+### Save DEG unique to main or interaction effects for each stage: 
+
+```{r}
+a <- deg_allstages[deg_allstages$cof == "group",]
+b <- deg_allstages[deg_allstages$cof == "exposure",]
+c <- deg_allstages[deg_allstages$cof == "stage",]
+d <- deg_allstages[deg_allstages$cof == "group_exposure",]
+e <- deg_allstages[deg_allstages$cof == "group_stage",]
+f <- deg_allstages[deg_allstages$cof == "exposure_stage",]
+g <- deg_allstages[deg_allstages$cof == "group_exposure_stage",]
+
+a2 <- a[!(a$Gene %in% b$Gene) & !(a$Gene %in% c$Gene) 
+        & !(a$Gene %in% d$Gene) & !(a$Gene %in% e$Gene) & !(a$Gene %in% f$Gene) & !(a$Gene %in% g$Gene),]
+b2 <- b[!(b$Gene %in% c$Gene) & !(b$Gene %in% a$Gene) 
+        & !(b$Gene %in% d$Gene) & !(b$Gene %in% e$Gene) & !(b$Gene %in% f$Gene) & !(b$Gene %in% g$Gene),]
+c2 <- c[!(c$Gene %in% a$Gene) & !(c$Gene %in% b$Gene)
+        & !(c$Gene %in% d$Gene) & !(c$Gene %in% e$Gene) & !(c$Gene %in% f$Gene) & !(c$Gene %in% g$Gene),]
+d2 <- d[!(d$Gene %in% a$Gene) & !(d$Gene %in% b$Gene)
+        & !(d$Gene %in% c$Gene) & !(d$Gene %in% e$Gene) & !(d$Gene %in% f$Gene) & !(d$Gene %in% g$Gene),]
+e2 <- e[!(e$Gene %in% a$Gene) & !(e$Gene %in% b$Gene)
+        & !(e$Gene %in% c$Gene) & !(e$Gene %in% d$Gene) & !(e$Gene %in% f$Gene) & !(e$Gene %in% g$Gene),]
+f2 <- f[!(f$Gene %in% a$Gene) & !(f$Gene %in% b$Gene)
+        & !(f$Gene %in% c$Gene) & !(f$Gene %in% d$Gene) & !(f$Gene %in% e$Gene) & !(f$Gene %in% g$Gene),]
+g2 <- g[!(g$Gene %in% a$Gene) & !(g$Gene %in% b$Gene)
+        & !(g$Gene %in% c$Gene) & !(g$Gene %in% d$Gene) & !(g$Gene %in% e$Gene) & !(g$Gene %in% f$Gene),]
+
+a3 <- a[!(a$Gene %in% d$Gene) & !(a$Gene %in% e$Gene) & !(a$Gene %in% f$Gene) & !(a$Gene %in% g$Gene),]
+
+write.table(a2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(b2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(c2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(d2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(e2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(f2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(g2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+
+write.table(a3, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_noixns.csv", col.names=TRUE, row.names=FALSE, sep=",")
+```
+
+Check that subsetting worked: 
+
+```{r}
+g <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group.csv")
+ge <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure.csv")
+gs <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_stage.csv")
+ges <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure_stage.csv")
+
+gtest<- a
+getest <- d
+gstest <- e
+gestest <- f
+
+n <- intersect(a$Gene, d$Gene)
+m <- intersect(a$Gene, e$Gene)
+o <- intersect(a$Gene, f$Gene)
+nm <- intersect(n, m)
+no <- intersect(n, o)
+mo <- intersect(m, o)
+nmo <- intersect(nm, o)
+length(nmo)
+length(n) + length(m) + length(o) - length(nm) - length(nmo)
+nrow(a) - nrow(a2)
+```
+
+### Set up gene expression tables for MeV Heatmap
+
+Extract read counts by DEG. Make gene lists for each treatment effect: 
+
+```{r}
+
+testa3 <- y[as.vector(a3$Gene),]$counts
+tmvtest <- as.data.frame(t(testa3))
+tmvtest <- TreatNames_sub(tmvtest)
+tmvtest <- MeanVar(tmvtest)
+tmvtest <- t(tmvtest$mean)
+tmvtest <- tmvtest[,sort(colnames(tmvtest))]
+trtnormtest <- as.data.frame(cbind(tmvtest[,1:4]-tmvtest[,1], tmvtest[,5:8]-tmvtest[,5], tmvtest[,9:12]-tmvtest[,9], tmvtest[,13:16]-tmvtest[,13], tmvtest[,17:20]-tmvtest[,17], tmvtest[,21:24]-tmvtest[,21]))
+gnormtest <- as.data.frame(tmvtest-rowMeans(tmvtest))
+write.table(trtnormtest, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_allstages_testgroup_trtnorm.txt", col.names=NA, row.names=TRUE, sep="\t")
+write.table(gnormtest, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_allstages_testgroup_gnorm.txt", col.names=NA, row.names=TRUE, sep="\t")
+  
+
+all_cof <- list("group"=y[as.vector(a2$Gene),]$counts, "exposure"= y[as.vector(b2$Gene),]$counts, "stage"= y[as.vector(c2$Gene),]$counts, "group_exposure" = y[as.vector(d2$Gene),]$counts, "group_stage" =  y[as.vector(e2$Gene),]$counts, "exposure_stage" =  y[as.vector(f2$Gene),]$counts, "group_exposure_stage" =  y[as.vector(g2$Gene),]$counts) 
+
+trtnorm <- list()
+gnorm <- list()
+tmv <- list()
+for (i in 1:length(all_cof)) {
+  tmv[[i]] <- as.data.frame(t(all_cof[[i]]))
+  tmv[[i]] <- TreatNames_sub(tmv[[i]])
+  tmv[[i]] <- MeanVar(tmv[[i]])
+  tmv[[i]] <- t(tmv[[i]]$mean)
+  tmv[[i]] <- tmv[[i]][,sort(colnames(tmv[[i]]))]
+  trtnorm[[i]] <- as.data.frame(cbind(tmv[[i]][,1:4]-tmv[[i]][,1], tmv[[i]][,5:8]-tmv[[i]][,5], tmv[[i]][,9:12]-tmv[[i]][,9], tmv[[i]][,13:16]-tmv[[i]][,13], tmv[[i]][,17:20]-tmv[[i]][,17], tmv[[i]][,21:24]-tmv[[i]][,21]))
+  gnorm[[i]] <- as.data.frame(tmv[[i]]-rowMeans(tmv[[i]]))
+  write.table(trtnorm[[i]], paste("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_allstages_", names(all_cof[i]), "_trtnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+  write.table(gnorm[[i]], paste("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_allstages_", names(all_cof[i]), "_gnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+}
+
+```
+
+## Stage-Specific Analyses
 
 Subset unfiltered, raw read counts by stage for stage-specific analyses: 
 ```{r}
@@ -375,7 +544,7 @@ for (i in 1:length(StageData)) {
 
 ```
 
-####For each stage separately: 
+#### For each stage separately: 
 Early (stage 19): 
 ```{r}
 #Set up data for lm(): 
@@ -541,7 +710,7 @@ for (i in 1:length(names(deg.stages))) {
 ```
 
 
-###Save DEG unique to main or interaction effects for each stage: 
+### Save DEG unique to main or interaction effects for each stage: 
 
 ```{r}
 for (i in 1:length(names(deg.stages))) {
@@ -583,7 +752,7 @@ ge <-deg.stages$lat[deg.stages$lat$cof=="group_exposure",]
 # nrow(a) - nrow(a2)
 ```
 
-##Summarize gene expression patterns in heat map
+## Summarize gene expression patterns in heat map
 
 Extract read counts by DEG. Make gene lists for each treatment effect: 
 
@@ -650,7 +819,7 @@ for (i in 1:length(trtnorm)) {
 
 ```
 
-##DAVID Analysis set up
+## DAVID Analysis set up
 After generating heatmaps and performing cluster analysis, save all clustered genes into a multi-list file for DAVID, making sure to extract only the genes with uniprot accession numbers
 
 1. List saved cluster files and import their data
@@ -662,9 +831,9 @@ After generating heatmaps and performing cluster analysis, save all clustered ge
 
 ```{r}
 dir <- "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/mev_heatmap_expression_tables"
-files_list <- list.files(path = dir, pattern = "180403_")
+files_list <- list.files(path = dir, pattern = "180628_")
 files <- file.path(dir, files_list)
-filenames <- gsub("180403_", "", files_list)
+filenames <- gsub("180628_", "", files_list)
 filenames <- gsub(".txt", "", filenames)
 
 #Dump cluster gene lists into a list element
@@ -693,9 +862,19 @@ for (i in 1:length(unip)) {
   length(unip[[i]]) <- n
 }
 david <- do.call(cbind, unip)
-write.table(david, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180409_clustergenelists.txt", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+david[is.na(david)] <- " " 
+write.table(david, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180628_clustergenelists.txt", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
 
-#Compile background genelists by uniprot accession IDs and store one multi-list file: 
+#Compile background genelist for all-stages analysis by uniprot accession IDs and store one multi-list file: 
+
+bg <- as.vector(rownames(y$counts))
+bg_unip <- genemodels[genemodels$geneID %in% bg,]$lib
+bg_unip <- bg_unip[!is.na(bg_unip)]
+bg_unip <- as.data.frame(bg_unip)
+write.table(bg_unip, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180628_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+
+
+#Compile background genelists for stage-specific analyses by uniprot accession IDs and store one multi-list file: 
 bg <- vector("list", 3)
 bg_unip <- vector("list", 3)
 for (i in 1:length(StageData)) {
@@ -713,7 +892,7 @@ write.table(david_bg, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/18040
 ```
 
 
-##Venn Diagrams: 
+## Venn Diagrams: 
 
 ```{r}
 
@@ -774,7 +953,7 @@ filename = 'exp_DEG_venn.tiff',
 
 ```
 
-##Calculate mean-normalized expression values for the DEG for parental main effect at Stage 19 across all stages: 
+## Calculate mean-normalized expression values for the DEG for parental main effect at Stage 19 across all stages: 
 
 ```{r}
 #Import gene order from MeV hierarchical clustering: 
@@ -872,7 +1051,9 @@ write.table(lg, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180404_st35_parent_a
 ```
 
 
-##Look at inter-individual variation in non-DEG expression between parent control and parent exposed groups, or plot inviduals on MDS space:
+## Look at inter-individual variation in non-DEG 
+
+Visualize gene expression between parent control and parent exposed groups, or plot inviduals on MDS space:
 
 ```{r}
 
@@ -993,7 +1174,7 @@ all_pca <- multiplot(e_pca, m_pca, l_pca, cols=3)
 
 ```
 
-##Look at inter-individual variation in DEG expression between parent control and parent exposed groups, or plot inviduals on MDS space:
+## Look at inter-individual variation in DEG expression between parent control and parent exposed groups, or plot inviduals on MDS space:
 
 ```{r}
 
@@ -1095,21 +1276,26 @@ plotMDS(mat, labels=treats, col=col.group, main="Stage 19 Individuals By Parent 
 ```
 
 
-##Comparing the variance of non-DEG expression between Exposed and Control Parent Groups
+## Comparing the variance of non-DEG expression between Exposed and Control Parent Groups
 
 For stage 19: 
 
 ```{r}
-#Drop all DEG from stage 19 dataframe, also subsetting by parent treatment group: 
-e_g <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_group.csv")
-e_ex <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_exposure.csv")
-e_ge <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_gxe.csv")
+#Using all genes, including DEG: 
+pc <- ear[,ear$samples$group=="C"]
+pe <- ear[, ear$samples$group=="E"]
 
-exgenes <- c(as.vector(e_g$Gene), as.vector(e_ex$Gene), as.vector(e_ge$Gene))
-ex <- which(exgenes %in% rownames(ear$counts))
 
-pc <- ear[-ex, ear$samples$group=="C"]
-pe <- ear[-ex, ear$samples$group=="E"]
+# #Drop all DEG from stage 19 dataframe, also subsetting by parent treatment group: 
+# e_g <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_group.csv")
+# e_ex <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_exposure.csv")
+# e_ge <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_adjp005_ear_unique_gxe.csv")
+# 
+# exgenes <- c(as.vector(e_g$Gene), as.vector(e_ex$Gene), as.vector(e_ge$Gene))
+# ex <- which(exgenes %in% rownames(ear$counts))
+# 
+# pc <- ear[-ex, ear$samples$group=="C"]
+# pe <- ear[-ex, ear$samples$group=="E"]
 
 #Calculate variance for each treatment group and visualize in density plot: 
 pc  <- as.data.frame(t(pc$counts))
@@ -1225,7 +1411,7 @@ all_var <- multiplot(stdens, mvar, lvar, col=1)
 ```
 
 
-##Visualize the log2FC of Stage19 Parent Group DEGs across stages
+## Visualize the log2FC of Stage19 Parent Group DEGs across stages
 
 ```{r}
 library(data.table)
@@ -1275,7 +1461,7 @@ hcplots_all <- multiplot(hoc_plots[[1]], hoc_plots[[2]], hoc_plots[[3]], cols=3)
 ```
 
 
-##Visualize distribution of logFC between PC and PE of Stage 19 Parent DEGs across development
+## Visualize distribution of logFC between PC and PE of Stage 19 Parent DEGs across development
 
 ```{r}
 #First establish dataframe of logFC of randomly sampled genes from larger data set: 
@@ -1387,10 +1573,7 @@ fcplots_all <- multiplot(densplots[[1]][[1]], densplots[[1]][[2]], densplots[[1]
 ```
 
 
-
-
-
-##Control Embryo-specific analyses: 
+## Control Embryo-specific analyses: 
 
 Subset just the 00% embryo exposure samples for control embryo-specific analyses: 
 
@@ -1456,7 +1639,7 @@ write.table(ce$samples, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180305_contr
 
 ## Test for differential expression
 
-####Control embryo subset
+#### Control embryo subset
 ```{r}
 #Format the dataframe to run lm() for every gene:
 ce$counts <- ce_norm_counts
