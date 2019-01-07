@@ -186,9 +186,10 @@ dev.off()
 
 ```{r}
 mean_counts <- colMeans(trans)
-norm_counts <- sweep(trans, 2, colMeans(trans))
+norm_counts <- sweep(trans, 2, colMeans(trans), "-")
 grandmean <- mean(mean_counts)
 norm_counts <- norm_counts + grandmean
+y$counts - mean_counts + grandmean
 y$counts <- norm_counts
 ```
 
@@ -349,26 +350,24 @@ b2 <- b[!(b$Gene %in% c$Gene) & !(b$Gene %in% a$Gene)
         & !(b$Gene %in% d$Gene) & !(b$Gene %in% e$Gene) & !(b$Gene %in% f$Gene) & !(b$Gene %in% g$Gene),]
 c2 <- c[!(c$Gene %in% a$Gene) & !(c$Gene %in% b$Gene)
         & !(c$Gene %in% d$Gene) & !(c$Gene %in% e$Gene) & !(c$Gene %in% f$Gene) & !(c$Gene %in% g$Gene),]
-d2 <- d[!(d$Gene %in% a$Gene) & !(d$Gene %in% b$Gene)
-        & !(d$Gene %in% c$Gene) & !(d$Gene %in% e$Gene) & !(d$Gene %in% f$Gene) & !(d$Gene %in% g$Gene),]
-e2 <- e[!(e$Gene %in% a$Gene) & !(e$Gene %in% b$Gene)
-        & !(e$Gene %in% c$Gene) & !(e$Gene %in% d$Gene) & !(e$Gene %in% f$Gene) & !(e$Gene %in% g$Gene),]
-f2 <- f[!(f$Gene %in% a$Gene) & !(f$Gene %in% b$Gene)
-        & !(f$Gene %in% c$Gene) & !(f$Gene %in% d$Gene) & !(f$Gene %in% e$Gene) & !(f$Gene %in% g$Gene),]
-g2 <- g[!(g$Gene %in% a$Gene) & !(g$Gene %in% b$Gene)
-        & !(g$Gene %in% c$Gene) & !(g$Gene %in% d$Gene) & !(g$Gene %in% e$Gene) & !(g$Gene %in% f$Gene),]
-
-a3 <- a[!(a$Gene %in% d$Gene) & !(a$Gene %in% e$Gene) & !(a$Gene %in% f$Gene) & !(a$Gene %in% g$Gene),]
+d2 <- d[!(d$Gene %in% g$Gene),]
+e2 <- e[!(e$Gene %in% g$Gene),]
+f2 <- f[!(f$Gene %in% g$Gene),]
 
 write.table(a2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group.csv", col.names=TRUE, row.names=FALSE, sep=",")
 write.table(b2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
 write.table(c2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
-write.table(d2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
-write.table(e2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
-write.table(f2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
-write.table(g2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(d2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_group_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(e2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_group_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(f2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+write.table(g, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_group_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
 
-write.table(a3, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_noixns.csv", col.names=TRUE, row.names=FALSE, sep=",")
+# write.table(d2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure.csv", col.names=TRUE, row.names=FALSE, sep=",")
+# write.table(e2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+# write.table(f2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+# write.table(g2, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_exposure_stage.csv", col.names=TRUE, row.names=FALSE, sep=",")
+
+# write.table(a3, "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180628_adjp005_unique_group_noixns.csv", col.names=TRUE, row.names=FALSE, sep=",")
 ```
 
 Check that subsetting worked: 
@@ -452,7 +451,7 @@ for (i in 1:length(StageData)) {
 	for (j in 1:length(treat)) {
 		a <- which(StageData[[i]]$samples$trt==treat[j])
 		b <- colnames(StageData[[i]]$counts[,a])
-		kp <- rowSums(StageData[[i]]$counts[,a] > 5) >=4 
+		kp <- rowSums(StageData[[i]]$counts[,a] > 5) >=4
 		g <- which(kp==TRUE)
 		d[[j]] <- g
 	}
@@ -503,7 +502,6 @@ for (i in 1:length(StageData)) {
   
    write.table(StageData[[i]]$samples, paste("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_", names(StageData[i]),"_no_outlier_samples_noouts.csv", sep=""),  col.names=TRUE, row.names=TRUE, sep=",")
 }
-
 ```
 
 
