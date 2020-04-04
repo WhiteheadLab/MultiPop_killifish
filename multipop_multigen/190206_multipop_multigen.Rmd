@@ -1,0 +1,1194 @@
+---
+title: "Multi-Pop Intergenerational Study"
+author: "Jane Park"
+date: "9/24/2019"
+output: 
+  html_notebook: 
+    fig_caption: yes
+    toc: yes
+  html_document: 
+    keep_md: yes
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+2019 September 24
+
+Jane Park
+
+## Libraries
+
+```{r libraries}
+library(readxl)
+library(tximportData)
+library(tximport)
+library(lattice)
+library(readr)
+library(ggplot2)
+library(RColorBrewer)
+library(edgeR)
+library(limma)
+library(tidyr)
+library(dplyr)
+
+source("~/Documents/NIEHS_LSU_UCD/scripts/fun_MeanVar_all.R")
+source("~/Documents/NIEHS_LSU_UCD/scripts/fun_TreatMeans.R")
+
+setwd("~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen")
+
+```
+
+
+## Import quantification tables 
+
+Name quantification files path: 
+```{r}
+dir <- "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/salmon_quant"
+files_list <- list.files(dir)
+files <- file.path(dir,files_list, "quant.sf")
+all(file.exists(files))
+names <- gsub("_quant|_USP.*", "", files_list)
+names(files) <- names
+```
+
+## Associate transcripts to gene IDs 
+
+I'm using the gene model annotation file from supplementary materials of Noah Reid's 2016 paper, ["The genomic landscape of rapid repeated evolutionary adaptation to toxic pollution in wild fish"](http://science.sciencemag.org/content/suppl/2016/12/07/354.6317.1305.DC1)
+
+Subset the appropriate columns from the above table.
+
+"We first make a data.frame called tx2gene with two columns: 1) transcript ID and 2) gene ID. The column names do not matter but this column order must be used. The transcript ID must be the same one used in the abundance files.""
+```{r}
+gene_names <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Fhet_gene_transcript_names.csv")
+cols <- c("row", "transcript_id", "gene_id")
+colnames(gene_names) <- cols
+tx2gene <- gene_names[,2:3]
+head(tx2gene)
+```
+
+
+## Convert transcript-level counts to gene-level counts, and save as a DGEList object for easy handling. Counts are scaled for library size.
+txi$abundance is the TPM table for gene-level estimates. txi$counts is the counts normalized for transcript lengths. 
+
+```{r}
+txi <- tximport(files, type="salmon", tx2gene=tx2gene, countsFromAbundance = "lengthScaledTPM")
+names(txi)
+head(txi$counts)
+
+y <- DGEList(txi$counts)
+head(y$samples)
+```
+
+```{r Extract sample info from names}
+
+samplenames <- rownames(y$samples)
+y$samples[,"group"] <- NA
+y$samples[,"exposure"] <- NA
+y$samples[,"pop"] <- NA
+y$samples[,"trt"] <- NA
+
+for (i in 1:nrow(y$samples)) {
+  if (nchar(samplenames)[i] == 13) {
+    
+    y$samples$group[i] <- substring(samplenames[i], 8, 8)
+    y$samples$exposure[i] <- substring(samplenames[i], 9,10)
+    y$samples$pop[i] <- substring(samplenames[i], 5, 7)
+    
+  } else if (nchar(samplenames)[i] == 12) {
+    
+    y$samples$group[i] <- substring(samplenames[i], 4, 4)
+    y$samples$exposure[i] <- substring(samplenames[i], 6,7)
+    y$samples$pop[i] <- substring(samplenames[i], 1, 3)
+    
+    } else if (nchar(samplenames)[i] == 11) {
+      
+      y$samples$group[i] <- substring(samplenames[i], 3, 3)
+      y$samples$exposure[i] <- substring(samplenames[i],5,6)
+      y$samples$pop[i] <- substring(samplenames[i], 1, 2)
+      
+      } else {
+        y$samples$group[i] <- substring(samplenames[i], 1, 1)
+        y$samples$exposure[i] <- substring(samplenames[i], 4,5)
+        y$samples$pop[i] <- "ARS2"
+      }
+    }
+y$samples$trt <- with(y$samples, paste(pop, group, exposure, sep="."))
+
+y$samples$group <- as.factor(y$samples$group)
+y$samples$exposure <- as.factor(y$samples$exposure)
+y$samples$pop <- as.factor(y$samples$pop)
+y$samples$trt <- as.factor(y$samples$trt)
+ 
+```
+
+## Filtration
+
+```{r}
+#Save unfiltered, untransformed data as another object, save as .csv file:
+zz <- y	
+write.table(zz$counts, file="~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190206_unfiltered_counts.csv",
+	col.names=TRUE, row.names=TRUE, sep="\t")
+write.table(zz$samples, file="~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190206_all_samples.csv",
+	col.names=TRUE, row.names=TRUE, sep="\t")
+```
+
+
+### Filter out lowly expressed reads
+
+Filter all samples based on counts greater than 5 in at least 4 replicate samples of 1 treatment group: 
+
+```{r}
+#Create a list of genes for which there are greater than 5 counts in at least 4 replicates for each treatment group: 
+d = list()
+treat <- unique(y$samples$trt)
+head(treat)
+
+for (i in 1:length(treat)) {
+	a <- which(y$samples$trt==treat[i])
+	b <- colnames(y$counts[,a])
+	kp <- rowSums(y$counts[,a] > 5) >=4 
+	g <- which(kp==TRUE)
+	d[[i]] <- g
+}
+
+#Subset the DGEList object y by the gene list created above:
+nrow(y$counts)
+filt_genes <- unique(names(unlist(d, use.names=TRUE)))
+length(filt_genes)
+y <- y[filt_genes,]
+nrow(y$counts)
+
+#Save filtered background gene list:
+write.table(filt_genes, file="~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190206_background_gene_list.csv",
+	col.names=FALSE, row.names=FALSE, sep="\t")
+```
+
+
+## Normalize and Log Transform Read Counts
+
+```{r}
+#Transform count + constant: 
+trans <- log2(y$counts+15)
+```
+
+#### Normalize log-transformed counts for all samples: 
+
+```{r}
+mean_counts <- colMeans(trans)
+norm_counts <- sweep(trans, 2, colMeans(trans), "-")
+grandmean <- mean(mean_counts)
+norm_counts <- norm_counts + grandmean
+
+```
+
+Calculate mean and standard deviation of each gene for every treatment after normalization, whole data set: 
+
+```{r}
+#Calculate and visualize mean and standard deviation of each gene for every treatment after normalization, whole data set: 
+ttrans <- t(norm_counts)
+ttrans <- as.data.frame(ttrans)
+ttrans$trt <- y$samples$trt
+
+mv <- MeanVar(ttrans)
+mea <- as.vector(mv$mean)
+sd <- as.vector(mv$stdev)
+slope <- (coef(lm(sd~mea))[2])
+print(slope)
+
+```
+
+Visualize mean-standard deviation relationship after normalization: 
+```{r}
+
+pdf('~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190924_normcountslog+15.pdf')
+plot(mea,sd, pch=16, cex=0.5, main="Mean-SD relationship of Normalized Log(counts + 15), slope=-.01689")
+abline(coef(lm(sd~mea)),col="red",lwd=3)
+lines(lowess(mea,sd,f=0.2),col="blue",lwd=3)
+dev.off()
+```
+
+If everything looks ok, save normalized counts as DGEList object y. 
+```{r}
+y$counts <- norm_counts
+```
+
+
+## Unsupervised clustering of Data/ MDS plot:
+
+```{r}
+# MDS Plot
+par(mfrow=c(1,1))
+group <- w$samples$group
+exp <- w$samples$exposure
+pop <- w$samples$pop
+treats <- w$samples$trt
+
+col.group <- as.factor(group)
+levels(col.group) <-  c("red", "blue")
+col.group <- as.character(col.group)
+
+col.exp <- as.factor(exp)
+levels(col.exp) <- c("red", "blue")
+col.exp <- as.character(col.exp)
+
+col.pop <- as.factor(pop)
+levels(col.pop) <- brewer.pal(nlevels(col.pop), "Dark2")
+col.pop <- as.character(col.pop)
+
+col.treat <- as.factor(treats)
+levels(col.treat) <- brewer.pal(nlevels(col.treat), "Set1")
+col.treat <- as.character(col.treat)
+
+plotMDS(y[,y$samples$pop=="ARS"], labels=rownames(y[,y$samples$pop=="ARS"]$samples), top=22573, dim=c(1,2))
+w <- y[,rownames(y$samples)!="GTC_56_19_3" & rownames(y$samples)!= "0130ARSE56195" & rownames(y$samples)!= "0129ARSE56194"]
+plotMDS(w, labels=w$samples$trt, top=22573, col=col.pop, dim=c(1,2), gene.selection="common", method="logFC")
+
+```
+
+PCA Plot: 
+```{r}
+library(ggplot2)
+#PCA Plot
+p <- as.data.frame(t(y$counts))
+p$pop <- y$samples$pop
+p$exposure <- y$samples$exposure
+p$group <- y$samples$group
+p$trt <- y$samples$trt
+
+p <- as.data.frame(t(w$counts))
+p$pop <- w$samples$pop
+p$exposure <- w$samples$exposure
+p$group <- w$samples$group
+p$trt <- w$samples$trt
+
+# Make PC dataframe and calculate proportion variances: 
+p.pca <- prcomp(p[,1:20000])
+summary(p.pca)
+p.pca.proportionvariances <- ((p.pca$sdev^2) / (sum(p.pca$sdev^2)))*100
+p.PCi <- data.frame(p.pca$x, pop=p$pop, exposure=p$exposure, group=p$group, treat=p$trt)
+
+
+q <- ggplot(p.PCi, aes(x=PC1, y=PC2, color=pop, 
+                              shape=exposure,
+                              fill=factor(ifelse(group=="C", pop, "white")))) +
+  scale_color_manual(name="Population", values=c("mediumorchid", "orange1", "dodgerblue2", "tomato3")) + 
+  scale_shape_manual(name="Exposure", values=c(21,24)) + 
+  scale_fill_manual(name="Lineage", values=c("mediumorchid", "orange1", "dodgerblue2", "tomato3", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(p.pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(p.pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of samples minus outliers") 
+
+q + geom_point(aes(size=group)) +
+  scale_size_manual(name="Lineage", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+
+##Fix pca to have varying hue/saturation for exposure level. But basically, samples cluster by population, except ARS and GB, which seem to vary due to exposure
+
+```
+
+
+## Save all log-transformed & normalized counts and sample information for whole data set and subsets: 
+
+```{r}
+#Normalized counts and samples for whole data set: 
+write.table(y$counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190925_allsamples_normcounts_noouts.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+write.table(y$samples, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190925_allsamples_samplesinfo_noouts.csv", 
+            col.names=TRUE, row.names=TRUE, sep=",")
+
+
+w <- y[,rownames(y$samples)!="GTC_56_19_3" & rownames(y$samples)!= "0130ARSE56195" & rownames(y$samples)!= "0129ARSE56194"]
+write.table(w$counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190925_no_outliers_normcounts_noouts.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+write.table(w$samples, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190925_no_outliers_samplesinfo_noouts.csv", 
+            col.names=TRUE, row.names=TRUE, sep=",")
+```
+
+## DEG Analysis
+
+```{r}
+#Set up data for lm(): 
+y <- w
+ttrans <- t(y$counts)
+ttrans <- as.data.frame(ttrans)
+ttrans$trt <- y$samples$trt
+ttrans$exposure <- y$samples$exposure
+ttrans$pop <- y$samples$pop
+ttrans$group <- y$samples$group
+
+#Set up data frame to store p-values: 
+d <- dim(ttrans)[2]-4
+glist.y <- colnames(ttrans[,1:d])
+cofs <- c("pop", "exposure", "group", "pop:exposure", "pop:group", "exposure:group", "pop:exposure:group")
+pdat.y <- matrix(nrow=length(glist.y), ncol=length(cofs))
+colnames(pdat.y) <- cofs
+rownames(pdat.y) <- glist.y
+
+#Run lm() on each gene: 
+for (i in 1:ncol(ttrans[,1:d])) {
+	g <- which(rownames(pdat.y)==colnames(ttrans)[i])
+	l <- lm(formula=ttrans[,i] ~ pop*exposure*group, data=ttrans)
+	a <- anova(l)
+	p <- a$`Pr(>F)`[1:7]
+	pdat.y[g,] <- p 
+}
+
+#Save p-values: 
+pdat.y <- as.data.frame(pdat.y)
+names(pdat.y) <- gsub(":", "_", names(pdat.y))
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191119_anova_unadj_pvalues.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+
+```
+
+
+#### Adjust p-values for FDR
+
+```{r}
+#Vectorize and apply p.adjust to pdat.y dataframe
+#pval_all <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/190925_anova_unadj_pvalues_noouts.csv", header=TRUE)
+pval_all <- pdat.y
+
+adj_pval_all <- setDT(pval_all, keep.rownames=TRUE)
+colnames(adj_pval_all)[1] <- "Gene"
+adj_pval_all <- adj_pval_all %>% 
+	gather(`pop`, `exposure`, `group`, `pop_exposure`, `pop_group`, `exposure_group`, `pop_exposure_group`,
+		key = "cof", value = "pvals")
+
+adj_pval_all$adj_pvals <- p.adjust(adj_pval_all$pvals, method="fdr")
+
+# Merge p-values with expression values for each sample: 
+library(data.table)
+counts <- y$counts
+
+counts <- cbind("Gene"=rownames(counts), data.frame(counts, check.names = F, row.names=NULL))
+
+adj_p_counts <- merge(adj_pval_all, counts, by.x="Gene")
+
+#Write p-values and expression values for all genes: 
+write.table(adj_p_counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191101_fdradj_pval_counts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+```
+
+## DEG analysis testing for population history, geography, and nonsense contrasts
+```{r}
+#add ref/oiled info to sample data
+ttrans$pop2 <- c(rep("ref", 42), rep("oiled", 38))
+ttrans$geo <- c(rep("LA", 22), rep("TX", 20), rep("LA", 19), rep("TX", 19))
+ttrans$geo <- as.factor(ttrans$geo)
+ttrans$rand <- "NA"
+ttrans$rand[which(ttrans$pop=="GB" | ttrans$pop=="GT")] <- "A"
+ttrans$rand[which(ttrans$pop=="VB" | ttrans$pop=="ARS")] <- "B"
+
+
+#Set up data frame to store p-values: 
+d <- dim(ttrans)[2]-7
+glist.y <- colnames(ttrans[,1:d])
+cofs <- c("pop2", "exposure", "group", "pop2:exposure", "pop2:group", "exposure:group", "pop2:exposure:group")
+cofs <- c("geo", "exposure", "group", "geo:exposure", "geo:group", "exposure:group", "geo:exposure:group")
+cofs <- c("rand", "exposure", "group", "rand:exposure", "rand:group", "exposure:group", "rand:exposure:group")
+pdat.y <- matrix(nrow=length(glist.y), ncol=length(cofs))
+colnames(pdat.y) <- cofs
+rownames(pdat.y) <- glist.y
+
+#Run lm() on each gene: 
+for (i in 1:ncol(ttrans[,1:d])) {
+	g <- which(rownames(pdat.y)==colnames(ttrans)[i])
+	l <- lm(formula=ttrans[,i] ~ pop2*exposure*group, data=ttrans)
+	a <- anova(l)
+	p <- a$`Pr(>F)`[1:7]
+	pdat.y[g,] <- p 
+}
+
+#test some other models
+nest <- lm(formula=ttrans[,i] ~ exposure*group*geo/pop*pop2, data=ttrans)
+nest_an <- anova(nest)
+
+#Save p-values: 
+pdat.y <- as.data.frame(pdat.y)
+names(pdat.y) <- gsub(":", "_", names(pdat.y))
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191201_anova_unadj_pvalues.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_pophistory_contrast_anova_unadj_pvalues.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_geo_contrast_anova_unadj_pvalues.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+write.table(pdat.y, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_rand_contrast_anova_unadj_pvalues.csv", 
+		col.names=TRUE, row.names=TRUE, sep=",")
+
+
+#Vectorize and apply p.adjust to pdat.y dataframe
+library(dplyr)
+library(tidyr)
+library(data.table)
+
+pophistory_all <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_pophistory_contrast_anova_unadj_pvalues.csv", header=TRUE)
+geo_all  <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_geo_contrast_anova_unadj_pvalues.csv", header=TRUE)
+rand_all  <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200130_rand_contrast_anova_unadj_pvalues.csv", header=TRUE)
+
+
+##population history contrast
+pophistory_all <- setDT(pophistory_all, keep.rownames=TRUE)
+colnames(pophistory_all)[1] <- "Gene"
+pophistory_all <- pophistory_all %>% 
+	gather(`pop2`, `exposure`, `group`, `pop2_exposure`, `pop2_group`, `exposure_group`, `pop2_exposure_group`,
+		key = "cof", value = "pvals")
+
+pophistory_all$adj_pvals <- p.adjust(pophistory_all$pvals, method="fdr")
+
+##geography contrast
+geo_all <- setDT(geo_all, keep.rownames=TRUE)
+colnames(geo_all)[1] <- "Gene"
+geo_all <- geo_all %>% 
+	gather(`geo`, `exposure`, `group`, `geo_exposure`, `geo_group`, `exposure_group`, `geo_exposure_group`,
+		key = "cof", value = "pvals")
+
+geo_all$adj_pvals <- p.adjust(geo_all$pvals, method="fdr")
+
+##nonsense contrast
+rand_all <- setDT(rand_all, keep.rownames=TRUE)
+colnames(rand_all)[1] <- "Gene"
+rand_all <- rand_all %>% 
+	gather(`rand`, `exposure`, `group`, `rand_exposure`, `rand_group`, `exposure_group`, `rand_exposure_group`,
+		key = "cof", value = "pvals")
+
+rand_all$adj_pvals <- p.adjust(rand_all$pvals, method="fdr")
+
+# Merge p-values with expression values for each sample: 
+library(data.table)
+counts <- y$counts
+
+counts <- cbind("Gene"=rownames(counts), data.frame(counts, check.names = F, row.names=NULL))
+
+pophistory_counts <- merge(pophistory_all, counts, by.x="Gene")
+geo_counts <- merge(geo_all, counts, by.x="Gene")
+rand_counts <- merge(rand_all, counts, by.x="Gene")
+
+#Write p-values and expression values for all genes: 
+write.table(pophistory_counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200131_fdradj_pophistory_counts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+write.table(geo_counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200131_fdradj_geo_counts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+write.table(rand_counts, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200131_fdradj_rand_counts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+
+```
+
+# Heatmaps
+
+```{r set up datatables}
+# Normalize counts and average across treatments for all genes
+tmv <- as.data.frame(t(y$counts))
+tmv$trt <- y$samples$trt
+tmv <- MeanVar(tmv)
+tmv <- t(tmv$mean)
+tmv <- tmv[,c("ARS.C.00", "ARS.C.56", "ARS.E.00", "ARS.E.56", 
+              "GT.C.00", "GT.C.56", "GT.E.00", "GT.E.56", 
+              "GB.C.00", "GB.C.56", "GB.E.00", "GB.E.56", 
+              "VB.C.00", "VB.C.56", "VB.E.00", "VB.E.56")]
+trtnorm <- as.data.frame(cbind(tmv[,1:2]-tmv[,1], tmv[,3:4]-tmv[,3], 
+                               tmv[,5:6]-tmv[,5], tmv[,7:8]-tmv[,7], 
+                               tmv[,9:10]-tmv[,9], tmv[,11:12]-tmv[,11], 
+                               tmv[,13:14]-tmv[,13], tmv[,15:16]-tmv[,15]))
+gnorm <- as.data.frame(tmv-rowMeans(tmv))
+
+trtnorm <- cbind("Gene"=rownames(trtnorm), data.frame(trtnorm, check.names=F, row.names=NULL))
+gnorm <- cbind("Gene"=rownames(gnorm), data.frame(gnorm, check.names=F, row.names=NULL))
+
+#Merge with p-values
+adj_p_trtnorm <- merge(adj_pval_all, trtnorm, by.x="Gene")
+adj_p_gnorm <- merge(adj_pval_all, gnorm, b.x="Gene")
+
+pophistory_trtnorm <- merge(pophistory_all, trtnorm, by.x="Gene")
+pophistory_gnorm <- merge(pophistory_all, gnorm, by.x="Gene")
+
+geo_trtnorm <- merge(geo_all, trtnorm, by.x="Gene")
+geo_gnorm <- merge(geo_all, gnorm, by.x="Gene")
+
+rand_trtnorm <- merge(rand_all, trtnorm, by.x="Gene")
+rand_gnorm <- merge(rand_all, gnorm, by.x="Gene")
+
+#Save averaged and normalized counts with p-values: 
+write.table(adj_p_trtnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191119_fdradj_pval_trtnorm_counts_noarsouts.csv", 
+            col.names=TRUE, row.names=FALSE, sep=",")
+write.table(adj_p_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191119_fdradj_pval_gnorm_counts_noarsouts.csv", 
+            col.names=TRUE, row.names=FALSE, sep=",")
+
+write.table(pophistory_trtnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_pophistory_trtnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+write.table(pophistory_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_pophistory_gnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+
+write.table(geo_trtnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_geo_trtnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+write.table(geo_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_geo_gnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+
+write.table(rand_trtnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_rand_trtnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+write.table(rand_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/200203_rand_gnorm_counts_noarsouts.csv",
+		col.names=TRUE, row.names=FALSE, sep=",")
+
+```
+
+#### Individual population contrasts
+```{r make figures: individual populations contrasts}
+library(pheatmap)
+library(RColorBrewer)
+
+#Exclude interaction DEGs with adj. p-value < 0.1: 
+exp_ixn <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure" & adj_p_trtnorm$adj_pvals <= 0.1 | adj_p_trtnorm$cof=="exposure_group" & adj_p_trtnorm$adj_pvals <= 0.1 | adj_p_trtnorm$cof=="pop_exposure_group" & adj_p_trtnorm$adj_pvals <= 0.1, ]
+
+exposure <- adj_p_trtnorm[adj_p_trtnorm$cof =="exposure" & 
+                           adj_p_trtnorm$adj_pvals <= 0.05 &
+                            !(adj_p_trtnorm$Gene %in% exp_ixn$Gene), ]
+
+#Make the heatmap
+expos_main <- pheatmap(exposure[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+exposure2 <- exposure[expos_main$tree_row$order,]
+
+expos_main <- pheatmap(exposure2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+#Extract clusters 
+exp.clust <- as.data.frame(cbind(exposure2$Gene, cluster = cutree(expos_main$tree_row, k = 2)))
+exp.list <- list()
+for (i in 1:length(unique(exp.clust$cluster))) {
+  exp.list[[i]] <- exp.clust[exp.clust$cluster == i,]
+  colnames(exp.list[[i]])[1] <- "Gene"
+  rownames(exp.list[[i]]) <- c()
+  names(exp.list)[i] <- paste("exp.c", i, sep="")
+}
+```
+
+```{r parent treatment main effect}
+# Exclude interaction degs of p.val < 0.1
+group_ixn <- adj_p_gnorm[adj_p_gnorm$cof=="pop_group" & adj_p_gnorm$adj_pvals <= 0.1 | 
+                          adj_p_gnorm$cof=="exposure_group" & adj_p_gnorm$adj_pvals <= 0.1 | 
+                          adj_p_gnorm$cof=="pop_exposure_group" & adj_p_gnorm$adj_pvals <= 0.1,]
+
+group <- adj_p_gnorm[adj_p_gnorm$cof=="group" & 
+                       adj_p_gnorm$adj_pvals <= 0.05 &
+                         !(adj_p_gnorm$Gene %in% group_ixn$Gene),]
+
+# Make the heatmap
+group_main <- pheatmap(group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "euclidean", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Main effect of Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+group2 <- group[group_main$tree_row$order,]
+
+group_main <- pheatmap(group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "euclidean", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Main effect of Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+#Clusters at DEG pval 0.1
+group1.clust <- as.data.frame(cbind(group2$Gene, cluster = cutree(group_main$tree_row, k = 2)))
+group1.list <- list()
+for (i in 1:length(unique(group1.clust$cluster))) {
+  group1.list[[i]] <- group1.clust[group1.clust$cluster == i,]
+  colnames(group1.list[[i]])[1] <- "Gene"
+  rownames(group1.list[[i]]) <- c()
+  names(group1.list)[i] <- paste("group1.c", i, sep="")
+}
+
+#Clustering pval 0.05 euclidean
+group05.clust <- as.data.frame(cbind(group2$Gene, cluster = cutree(group_main$tree_row, k = 2)))
+group05.list <- list()
+for (i in 1:length(unique(group05.clust$cluster))) {
+  group05.list[[i]] <- group05.clust[group05.clust$cluster == i,]
+  colnames(group05.list[[i]])[1] <- "Gene"
+  rownames(group05.list[[i]]) <- c()
+  names(group05.list)[i] <- paste("group05_euc.c", i, sep="")
+}
+
+#Clustering pval 0.05 pearson correlation
+group05_pearson.clust <- as.data.frame(cbind(group2$Gene, cluster = cutree(group_main$tree_row, k = 2)))
+group05_pearson.list <- list()
+for (i in 1:length(unique(group05_pearson.clust$cluster))) {
+  group05_pearson.list[[i]] <- group05_pearson.clust[group05_pearson.clust$cluster == i,]
+  colnames(group05_pearson.list[[i]])[1] <- "Gene"
+  rownames(group05_pearson.list[[i]]) <- c()
+  names(group05_pearson.list)[i] <- paste("group05_pearson.c", i, sep="")
+}
+```
+
+```{r population and exposure ixn }
+# pop and exposure ixn
+pg_ixn <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure_group" & adj_p_trtnorm$adj_pvals <= 0.1,]
+
+pop_exp <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure" & 
+                       adj_p_trtnorm$adj_pvals <= 0.05  &
+                         !(adj_p_trtnorm$Gene %in% pg_ixn$Gene),]
+
+row.names(pop_exp) <- pop_exp$Gene
+
+popxexposure <- pheatmap(pop_exp[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 3, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population and Embryonic Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+
+#order the dataframe as genes are plot on heatmap
+pop_exp2 <- pop_exp[popxexposure$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+popxexposure <- pheatmap(pop_exp2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 3, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population and Embryonic Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#now that the hclust items all match up assign clusters to genes, p <0.1 cutoff
+popexp1.clust <- as.data.frame(cbind(gene=pop_exp2$Gene, cluster = sort(cutree(popxexposure$tree_row, k = 3))))
+
+popexp1.list <- list()
+for (i in 1:length(unique(popexp1.clust$cluster))) {
+  popexp1.list[[i]] <- popexp1.clust[popexp1.clust$cluster == i,]
+  colnames(popexp1.list[[i]])[1] <- "Gene"
+  rownames(popexp1.list[[i]]) <- c()
+  names(popexp1.list)[i] <- paste("popexp1.c", i, sep="")
+}
+
+#p < 0.05 cutoff
+popexp05.clust <- as.data.frame(cbind(gene=pop_exp2$Gene, cluster = sort(cutree(popxexposure$tree_row, k = 2))))
+
+popexp05.list <- list()
+for (i in 1:length(unique(popexp05.clust$cluster))) {
+  popexp05.list[[i]] <- popexp05.clust[popexp05.clust$cluster == i,]
+  colnames(popexp05.list[[i]])[1] <- "Gene"
+  rownames(popexp05.list[[i]]) <- c()
+  names(popexp05.list)[i] <- paste("popexp05.c", i, sep="")
+}
+
+```
+
+``` {r population x parent treatment ixn}
+#pop and parent ixn
+pg_ixn <- adj_p_gnorm[adj_p_gnorm$cof=="pop_exposure_group" & adj_p_gnorm$adj_pvals <= 0.1,]
+
+pop_group <- adj_p_gnorm[adj_p_gnorm$cof=="pop_group" & 
+                       adj_p_gnorm$adj_pvals <= 0.05 &
+                         !(adj_p_gnorm$Gene %in% pg_ixn$Gene),]
+
+row.names(pop_group) <- pop_group$Gene
+
+popxgroup <- pheatmap(pop_group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population History and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+pop_group2 <- pop_group[popxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+popxgroup <- pheatmap(pop_group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population History and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+popxgroup.clust <- as.data.frame(cbind(gene=pop_group2$Gene, cluster = sort(cutree(popxgroup$tree_row, k = 2))))
+
+pop2xgroup.list <- list()
+for (i in 1:length(unique(popxgroup.clust$cluster))) {
+  pop2xgroup.list[[i]] <- popxgroup.clust[popxgroup.clust$cluster == i,]
+  colnames(pop2xgroup.list[[i]])[1] <- "Gene"
+  rownames(pop2xgroup.list[[i]]) <- c()
+  names(pop2xgroup.list)[i] <- paste("popxgroup005.c", i, sep="")
+}
+```
+
+```{r exposure x parent treatment ixn}
+# exposure x group ixn
+expgroup_ixn <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure_group" & adj_p_trtnorm$adj_pvals <= 0.1,]
+
+exposuregroup <- adj_p_trtnorm[adj_p_trtnorm$cof =="exposure_group" & 
+                           adj_p_trtnorm$adj_pvals <= 0.1 &
+                            !(adj_p_trtnorm$Gene %in% expgroup_ixn$Gene), ]
+
+expos_group <- pheatmap(exposuregroup[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+exposuregroup2 <- exposuregroup[expos_group$tree_row$order,]
+expos_group <- pheatmap(exposuregroup2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Interaction effect of Embryonic Exposure and Parent Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+expgroup.clust <- as.data.frame(cbind(exposuregroup2$Gene, cluster = cutree(expos_group$tree_row, k = 2)))
+expgroup.list <- list()
+for (i in 1:length(unique(expgroup.clust$cluster))) {
+  expgroup.list[[i]] <- expgroup.clust[expgroup.clust$cluster == i,]
+  colnames(expgroup.list[[i]])[1] <- "Gene"
+  rownames(expgroup.list[[i]]) <- c()
+  names(expgroup.list)[i] <- paste("expgroup.c", i, sep="")
+}
+
+```
+
+``` {r population x parent treatment x embryonic dose ixn}
+# pop x parent x dose ixn
+peg <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure_group" & 
+                       adj_p_trtnorm$adj_pvals <= 0.1,]
+
+row.names(peg) <- peg$Gene
+
+popxexpxgroup <- pheatmap(peg[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population, Embryonic Exposure, and Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+peg2 <- peg[popxexpxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+popxexpxgroup <- pheatmap(peg2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population, Embryonic Exposure, and Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+peg1.clust <- as.data.frame(cbind(gene=peg2$Gene, cluster = sort(cutree(popxexpxgroup$tree_row, k = 2))))
+
+peg1.list <- list()
+for (i in 1:length(unique(peg1.clust$cluster))) {
+  peg1.list[[i]] <- peg1.clust[peg1.clust$cluster == i,]
+  colnames(peg1.list[[i]])[1] <- "Gene"
+  rownames(peg1.list[[i]]) <- c()
+  names(peg1.list)[i] <- paste("peg1.c", i, sep="")
+}
+
+#adj p val < 0.05
+peg05.clust <- as.data.frame(cbind(gene=peg2$Gene, cluster = sort(cutree(popxexpxgroup$tree_row, k = 2))))
+
+peg05.list <- list()
+for (i in 1:length(unique(peg05.clust$cluster))) {
+  peg05.list[[i]] <- peg05.clust[peg05.clust$cluster == i,]
+  colnames(peg05.list[[i]])[1] <- "Gene"
+  rownames(peg05.list[[i]]) <- c()
+  names(peg05.list)[i] <- paste("peg05.c", i, sep="")
+}
+
+```
+
+#### Population history contrast 
+```{r heatmap pophistory contrasts, main effect}
+library(pheatmap)
+library(RColorBrewer)
+
+head(pophistory_trtnorm)
+head(pophistory_gnorm)
+
+#Main effect of exposure, excluding interaction DEGs with adj. p-value < 0.1: 
+exp_ixn <- pophistory_trtnorm[pophistory_trtnorm$cof=="pop2_exposure" & pophistory_trtnorm$adj_pvals <= 0.1 | pophistory_trtnorm$cof=="exposure_group" & pophistory_trtnorm$adj_pvals <= 0.1 | pophistory_trtnorm$cof=="pop2_exposure_group" & pophistory_trtnorm$adj_pvals <= 0.1, ]
+
+ph_exposure <- pophistory_trtnorm[pophistory_trtnorm$cof =="exposure" & 
+                           pophistory_trtnorm$adj_pvals <= 0.05 &
+                            !(pophistory_trtnorm$Gene %in% exp_ixn$Gene), ]
+
+ph_expos_main <- pheatmap(ph_exposure[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+ph_exposure2 <- ph_exposure[ph_expos_main$tree_row$order,]
+
+ph_expos_main <- pheatmap(ph_exposure2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+ph_exp.clust <- as.data.frame(cbind(ph_exposure2$Gene, cluster = cutree(ph_expos_main$tree_row, k = 2)))
+ph_exp.list <- list()
+for (i in 1:length(unique(ph_exp.clust$cluster))) {
+  ph_exp.list[[i]] <- ph_exp.clust[ph_exp.clust$cluster == i,]
+  colnames(ph_exp.list[[i]])[1] <- "Gene"
+  rownames(ph_exp.list[[i]]) <- c()
+  names(ph_exp.list)[i] <- paste("ph_exp.c", i, sep="")
+}
+```
+
+```{r parent treatment main effect}
+# parent treatment main effect
+ph_group_ixn <- pophistory_gnorm[pophistory_gnorm$cof=="pop2_group" & pophistory_gnorm$adj_pvals <= 0.1 | 
+                          pophistory_gnorm$cof=="exposure_group" & pophistory_gnorm$adj_pvals <= 0.1 | 
+                          pophistory_gnorm$cof=="pop2_exposure_group" & pophistory_gnorm$adj_pvals <= 0.1,]
+
+ph_group <- pophistory_gnorm[pophistory_gnorm$cof=="group" & 
+                       pophistory_gnorm$adj_pvals <= 0.05 &
+                         !(pophistory_gnorm$Gene %in% ph_group_ixn$Gene),]
+
+ph_group_main <- pheatmap(ph_group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "euclidean", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Main effect of Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+ph_group2 <- ph_group[ph_group_main$tree_row$order,]
+
+ph_group_main <- pheatmap(ph_group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "euclidean", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Main effect of Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+#pval 0.1
+ph_group1.clust <- as.data.frame(cbind(ph_group2$Gene, cluster = cutree(ph_group_main$tree_row, k = 2)))
+ph_group1.list <- list()
+for (i in 1:length(unique(ph_group1.clust$cluster))) {
+  ph_group1.list[[i]] <- ph_group1.clust[ph_group1.clust$cluster == i,]
+  colnames(ph_group1.list[[i]])[1] <- "Gene"
+  rownames(ph_group1.list[[i]]) <- c()
+  names(ph_group1.list)[i] <- paste("ph_group1.c", i, sep="")
+}
+
+#pval 0.05 euclidean
+ph_group05.clust <- as.data.frame(cbind(ph_group2$Gene, cluster = cutree(ph_group_main$tree_row, k = 2)))
+ph_group05.list <- list()
+for (i in 1:length(unique(ph_group05.clust$cluster))) {
+  ph_group05.list[[i]] <- ph_group05.clust[ph_group05.clust$cluster == i,]
+  colnames(ph_group05.list[[i]])[1] <- "Gene"
+  rownames(ph_group05.list[[i]]) <- c()
+  names(ph_group05.list)[i] <- paste("ph_group05_euc.c", i, sep="")
+}
+
+```
+
+```{r population and exposure ixn }
+# pop and exposure ixn
+ph_pg_ixn <- pophistory_trtnorm[pophistory_trtnorm$cof=="pop2_exposure_group" & pophistory_trtnorm$adj_pvals <= 0.1,]
+
+ph_pop_exp <- pophistory_trtnorm[pophistory_trtnorm$cof=="pop2_exposure" & 
+                       pophistory_trtnorm$adj_pvals <= 0.1  &
+                         !(pophistory_trtnorm$Gene %in% ph_pg_ixn$Gene),]
+
+row.names(ph_pop_exp) <- ph_pop_exp$Gene
+
+ph_popxexposure <- pheatmap(ph_pop_exp[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 3, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population and Embryonic Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+
+#order the dataframe as genes are plot on heatmap
+ph_pop_exp2 <- ph_pop_exp[ph_popxexposure$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+ph_popxexposure <- pheatmap(ph_pop_exp2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 3, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population and Embryonic Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#now that the hclust items all match up assign clusters to genes, p <0.1 cutoff
+ph_popexp1.clust <- as.data.frame(cbind(gene=ph_pop_exp2$Gene, cluster = sort(cutree(ph_popxexposure$tree_row, k = 3))))
+
+ph_popexp1.list <- list()
+for (i in 1:length(unique(ph_popexp1.clust$cluster))) {
+  ph_popexp1.list[[i]] <- ph_popexp1.clust[ph_popexp1.clust$cluster == i,]
+  colnames(ph_popexp1.list[[i]])[1] <- "Gene"
+  rownames(ph_popexp1.list[[i]]) <- c()
+  names(ph_popexp1.list)[i] <- paste("ph_popexp1.c", i, sep="")
+}
+
+
+```
+
+``` {r population history x parent treatment ixn}
+#pop and parent ixn
+ph_pg_ixn <- pophistory_gnorm[pophistory_gnorm$cof=="pop2_exposure_group" & pophistory_gnorm$adj_pvals <= 0.1,]
+
+ph_pop_group <- pophistory_gnorm[pophistory_gnorm$cof=="pop2_group" & 
+                       pophistory_gnorm$adj_pvals <= 0.05 &
+                         !(pophistory_gnorm$Gene %in% ph_pg_ixn$Gene),]
+
+row.names(ph_pop_group) <- ph_pop_group$Gene
+
+ph_popxgroup <- pheatmap(ph_pop_group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population History and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+ph_pop_group2 <- ph_pop_group[ph_popxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+popxgroup <- pheatmap(pop_group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population History and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+popxgroup.clust <- as.data.frame(cbind(gene=pop_group2$Gene, cluster = sort(cutree(popxgroup$tree_row, k = 2))))
+
+pop2xgroup.list <- list()
+for (i in 1:length(unique(popxgroup.clust$cluster))) {
+  pop2xgroup.list[[i]] <- popxgroup.clust[popxgroup.clust$cluster == i,]
+  colnames(pop2xgroup.list[[i]])[1] <- "Gene"
+  rownames(pop2xgroup.list[[i]]) <- c()
+  names(pop2xgroup.list)[i] <- paste("popxgroup005.c", i, sep="")
+}
+```
+
+```{r exposure x parent treatment ixn}
+# exposure x group ixn
+expgroup_ixn <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure_group" & adj_p_trtnorm$adj_pvals <= 0.1,]
+
+exposuregroup <- adj_p_trtnorm[adj_p_trtnorm$cof =="exposure_group" & 
+                           adj_p_trtnorm$adj_pvals <= 0.1 &
+                            !(adj_p_trtnorm$Gene %in% expgroup_ixn$Gene), ]
+
+expos_group <- pheatmap(exposuregroup[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Main effect of Embryonic Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+exposuregroup2 <- exposuregroup[expos_group$tree_row$order,]
+expos_group <- pheatmap(exposuregroup2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), cluster_cols=FALSE, cutree_rows = 2, show_rownames = FALSE, main= "Interaction effect of Embryonic Exposure and Parent Exposure", clustering_distance_rows="correlation", gaps_col = c(4,8,12), border_color = NA)
+
+expgroup.clust <- as.data.frame(cbind(exposuregroup2$Gene, cluster = cutree(expos_group$tree_row, k = 2)))
+expgroup.list <- list()
+for (i in 1:length(unique(expgroup.clust$cluster))) {
+  expgroup.list[[i]] <- expgroup.clust[expgroup.clust$cluster == i,]
+  colnames(expgroup.list[[i]])[1] <- "Gene"
+  rownames(expgroup.list[[i]]) <- c()
+  names(expgroup.list)[i] <- paste("expgroup.c", i, sep="")
+}
+
+```
+
+``` {r population x parent treatment x embryonic dose ixn}
+# pop x parent x dose ixn
+peg <- adj_p_trtnorm[adj_p_trtnorm$cof=="pop_exposure_group" & 
+                       adj_p_trtnorm$adj_pvals <= 0.1,]
+
+row.names(peg) <- peg$Gene
+
+popxexpxgroup <- pheatmap(peg[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population, Embryonic Exposure, and Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+peg2 <- peg[popxexpxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+popxexpxgroup <- pheatmap(peg2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Population, Embryonic Exposure, and Parent Treatment", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+peg1.clust <- as.data.frame(cbind(gene=peg2$Gene, cluster = sort(cutree(popxexpxgroup$tree_row, k = 2))))
+
+peg1.list <- list()
+for (i in 1:length(unique(peg1.clust$cluster))) {
+  peg1.list[[i]] <- peg1.clust[peg1.clust$cluster == i,]
+  colnames(peg1.list[[i]])[1] <- "Gene"
+  rownames(peg1.list[[i]]) <- c()
+  names(peg1.list)[i] <- paste("peg1.c", i, sep="")
+}
+
+#adj p val < 0.05
+peg05.clust <- as.data.frame(cbind(gene=peg2$Gene, cluster = sort(cutree(popxexpxgroup$tree_row, k = 2))))
+
+peg05.list <- list()
+for (i in 1:length(unique(peg05.clust$cluster))) {
+  peg05.list[[i]] <- peg05.clust[peg05.clust$cluster == i,]
+  colnames(peg05.list[[i]])[1] <- "Gene"
+  rownames(peg05.list[[i]]) <- c()
+  names(peg05.list)[i] <- paste("peg05.c", i, sep="")
+}
+
+```
+
+#### Geographical contrast
+
+``` {r population history x parent treatment ixn}
+#pop and parent ixn
+geo_pg_ixn <- geo_gnorm[geo_gnorm$cof=="geo_exposure_group" & geo_gnorm$adj_pvals <= 0.1,]
+
+geo_pop_group <- geo_gnorm[geo_gnorm$cof=="geo_group" & 
+                       geo_gnorm$adj_pvals <= 0.05 &
+                         !(geo_gnorm$Gene %in% geo_pg_ixn$Gene),]
+
+row.names(geo_pop_group) <- geo_pop_group$Gene
+
+geo_popxgroup <- pheatmap(geo_pop_group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Geography and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+geo_pop_group2 <- geo_pop_group[geo_popxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+geo_popxgroup <- pheatmap(geo_pop_group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Geography and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+geo_popxgroup.clust <- as.data.frame(cbind(gene=geo_pop_group2$Gene, cluster = sort(cutree(geo_popxgroup$tree_row, k = 2))))
+
+geo_popxgroup.list <- list()
+for (i in 1:length(unique(geo_popxgroup.clust$cluster))) {
+  geo_popxgroup.list[[i]] <- geo_popxgroup.clust[geo_popxgroup.clust$cluster == i,]
+  colnames(geo_popxgroup.list[[i]])[1] <- "Gene"
+  rownames(geo_popxgroup.list[[i]]) <- c()
+  names(geo_popxgroup.list)[i] <- paste("geo_popxgroup005.c", i, sep="")
+}
+```
+
+#### Nonsense contrast 
+
+``` {r population history x parent treatment ixn}
+#pop and parent ixn
+rand_pg_ixn <- rand_gnorm[rand_gnorm$cof=="rand_exposure_group" & rand_gnorm$adj_pvals <= 0.1,]
+
+rand_pop_group <- rand_gnorm[rand_gnorm$cof=="rand_group" & 
+                       rand_gnorm$adj_pvals <= 0.05 &
+                         !(rand_gnorm$Gene %in% rand_pg_ixn$Gene),]
+
+row.names(rand_pop_group) <- rand_pop_group$Gene
+
+rand_popxgroup <- pheatmap(rand_pop_group[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Nonsense Pop Assignment and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+
+#order the dataframe as genes are plot on heatmap
+rand_pop_group2 <- rand_pop_group[rand_popxgroup$tree_row$order,]
+#re-make the pheatmap item in the order of the new dataframe because i dont' have time to figure this shit out
+rand_popxgroup <- pheatmap(rand_pop_group2[,-(1:4)], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50), breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows = "correlation", cutree_rows = 2, cluster_cols=FALSE, show_rownames = FALSE, main= "Interaction effect of Nonsense Pop Assignment and Parent Exposure", gaps_col = c(4,8,12), border_color = NA)
+#now that the hclust items all match up assign clusters to genes
+rand_popxgroup.clust <- as.data.frame(cbind(gene=rand_pop_group2$Gene, cluster = sort(cutree(rand_popxgroup$tree_row, k = 2))))
+
+rand_popxgroup.list <- list()
+for (i in 1:length(unique(rand_popxgroup.clust$cluster))) {
+  rand_popxgroup.list[[i]] <- rand_popxgroup.clust[rand_popxgroup.clust$cluster == i,]
+  colnames(rand_popxgroup.list[[i]])[1] <- "Gene"
+  rownames(rand_popxgroup.list[[i]]) <- c()
+  names(rand_popxgroup.list)[i] <- paste("rand_popxgroup005.c", i, sep="")
+}
+```
+
+# Test for effect sizes and overlapping DEGs for population x parent treatment interaction from different contrasts
+
+```{r}
+# 1: Save lists of intersecting DEGs between all above contrasts for pop x parent treatment interactions
+
+ind <- pop_group$Gene
+phis <- ph_pop_group$Gene
+g <- geo_pop_group$Gene
+ran <- rand_pop_group$Gene
+
+ran_sub <- intersect(ind, ran)
+geo_sub <- intersect(ind, g)
+phis_sub <- intersect(ind, phis)
+
+tes <- pop_group[!(pop_group$Gene %in% geo_pop_group$Gene | pop_group$Gene %in% rand_pop_group$Gene), ]
+```
+
+# AHR pathway-related genes
+```{r}
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(readxl)
+
+ahr_genes <- as.data.frame(read_xlsx("~/Documents/NIEHS_LSU_UCD/rnaseq/ahr_target_gene_models.xlsx"))
+
+ahr_genes <- ahr_genes[,1:4]
+colnames(ahr_genes)[4] <- "Gene Annotation"
+
+# check if they're significant for pop_parnet treatment interaction
+allcontrast_counts <- rbind(adj_p_counts, pophistory_counts, geo_counts, rand_counts)
+allcontrast_counts <- geo_counts
+ahr_val <- allcontrast_counts[allcontrast_counts$Gene %in% ahr_genes$`Killifish geneID`,]
+ahr_val$annotation <- NA
+
+for (i in 1:dim(ahr_val)[1]) {
+  x <- ahr_val$Gene[i]
+  ahr_val$annotation[i] <- ahr_genes$`Gene Annotation`[which(ahr_genes$`Killifish geneID`==x)]
+}
+
+ahr_sig <- ahr_val[ahr_val$adj_pvals <= 0.1,]
+
+dim(ahr_sig)
+
+ahr_sig[which(ahr_sig$cof=="geo_group" | ahr_sig$cof=="group" | ahr_sig$cof=="geo" | ahr_sig$cof=="rand_group"),]
+
+```
+
+### Make heatmaps or expression profile figures for AHR-related genes for independent population contrast effects
+
+# PCA of treatment groups based on normalized treatment averages 
+
+
+```{r}
+df <- gnorm
+p <- as.data.frame(t(df))
+p$pop <- c(rep("ARS", 4), rep("GT", 4), rep("GB", 4), rep("VB", 4))
+p$exposure <-c(rep(c("00","56"), 8))
+p$group <- c(rep(c("C", "C", "E", "E"), 4))
+#p$trt <- y$samples$trt
+p.pca <- prcomp(p[,1:22000])
+summary(p.pca)
+p.pca.proportionvariances <- ((p.pca$sdev^2) / (sum(p.pca$sdev^2)))*100
+p.PCi <- data.frame(p.pca$x, pop=p$pop, exposure=p$exposure, group=p$group)
+
+
+q <- ggplot(p.PCi, aes(x=PC1, y=PC2, color=pop, 
+                              shape=exposure,
+                              fill=factor(ifelse(group=="C", pop, "white")))) +
+  scale_color_manual(name="Population", values=c("mediumorchid", "orange1", "dodgerblue2", "tomato3")) + 
+  scale_shape_manual(name="Exposure", values=c(21,24)) + 
+  scale_fill_manual(name="Lineage", values=c("mediumorchid", "orange1", "dodgerblue2", "tomato3", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(p.pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(p.pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of Average Expression Values by Treatment Group") 
+
+q + geom_point(aes(size=group)) +
+  scale_size_manual(name="Lineage", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+```
+
+## DAVID analysis set up with pheatmap clusters
+
+```{r}
+geneclusters <- list("exp"= exp.list, "group01" = group1.list, "group005_euc"= group05.list, "group005_pears" = group05_pearson.list, "popxgroup05" = popxgroup.list, "popexpgroup01" = peg1.list, "popexpgroup05"=peg05.list, "expgroup"=expgroup.list, "popexp1" = popexp1.list, "popexp05"=popexp05.list)
+
+library(readxl)
+genemodels <- as.data.frame(read_xlsx("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/Gene.Models.Conservative.and.Liberal.xlsx"))
+names(genemodels) <- c("geneID", "name", "cons", "lib")
+unip <- list()
+length(unip) <- length(geneclusters)
+
+for (j in 1:length(geneclusters)) {
+  for (i in 1:length(geneclusters[[j]])){
+  unip[[j]][[i]] <- genemodels[genemodels$geneID %in% geneclusters[[j]][[i]]$Gene,]$lib
+  unip[[j]][[i]] <- unip[[j]][[i]][!is.na(unip[[j]][[i]])]
+  names(unip[[j]])[i] <- names(geneclusters[[j]])[i]
+  }
+}
+unip <- unlist(unip, recursive = FALSE, use.names = TRUE)
+
+#Assign same length to all vectors, then run cbind: 
+n <- max(lengths(unip))
+for (i in 1:length(unip)) {
+  length(unip[[i]]) <- n
+}
+david <- do.call(cbind, unip)
+david[is.na(david)] <- " " 
+write.table(david, file="~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191123_clustergenelists.txt", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+
+#Compile background genelist for all-stages analysis by uniprot accession IDs and store one multi-list file: 
+
+bg <- as.vector(rownames(y$counts))
+bg_unip <- genemodels[genemodels$geneID %in% bg,]$lib
+bg_unip <- bg_unip[!is.na(bg_unip)]
+bg_unip <- as.data.frame(bg_unip)
+write.table(bg_unip, file="~/Documents/NIEHS_LSU_UCD/niehs/multipop_multigen/191108_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+```
+
+
+
+
+
+## DAVID Analysis set up
+After generating heatmaps and performing cluster analysis, save all clustered genes into a multi-list file for DAVID, making sure to extract only the genes with uniprot accession numbers
+
+1. List saved cluster files and import their data
+2. Make empty dataframe with n columns, n=number of total cluster files
+3. Name of cluster file --> name of column, pipe funhe gene id's from each file into each column
+4. Make another empty dataframe with same column names and number of columns
+5. For every item in the column vector, if there's an entry for the uniprot accession, then write that uniprot entry into the dataframe
+6. Repeat above for background genelists for each stage.
+
+```{r}
+dir <- "~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/mev_heatmap_expression_tables"
+files_list <- list.files(path = dir, pattern = "180628_")
+files <- file.path(dir, files_list)
+filenames <- gsub("180628_", "", files_list)
+filenames <- gsub(".txt", "", filenames)
+
+#Dump cluster gene lists into a list element
+geneclusters <- list()
+for (i in 1:length(files)) {
+  geneclusters[[i]] <- read.csv(files[i], header=TRUE, sep = "\t")
+  colnames(geneclusters[[i]])[2] <- "Gene"
+  names(geneclusters)[i] <- filenames[i]
+  geneclusters[[i]] <- as.vector(geneclusters[[i]]$Gene)
+}
+
+#Filter above genes by those with uniprot accession number: 
+library(readxl)
+genemodels <- as.data.frame(read_xlsx("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/Gene.Models.Conservative.and.Liberal.xlsx"))
+names(genemodels) <- c("geneID", "name", "cons", "lib")
+unip <- list()
+
+for (i in 1:length(geneclusters)){
+  unip[[i]] <- genemodels[genemodels$geneID %in% geneclusters[[i]],]$lib
+  unip[[i]] <- unip[[i]][!is.na(unip[[i]])]
+  names(unip)[i] <- names(geneclusters)[i]
+}
+#Assign same length to all vectors, then run cbind: 
+n <- max(lengths(unip))
+for (i in 1:length(unip)) {
+  length(unip[[i]]) <- n
+}
+david <- do.call(cbind, unip)
+david[is.na(david)] <- " " 
+write.table(david, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180628_clustergenelists.txt", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+
+#Compile background genelist for all-stages analysis by uniprot accession IDs and store one multi-list file: 
+
+bg <- as.vector(rownames(y$counts))
+bg_unip <- genemodels[genemodels$geneID %in% bg,]$lib
+bg_unip <- bg_unip[!is.na(bg_unip)]
+bg_unip <- as.data.frame(bg_unip)
+write.table(bg_unip, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180628_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+
+
+#Compile background genelists for stage-specific analyses by uniprot accession IDs and store one multi-list file: 
+bg <- vector("list", 3)
+bg_unip <- vector("list", 3)
+for (i in 1:length(StageData)) {
+  bg[[i]] <- as.vector(rownames(StageData[[i]]$counts))
+  names(bg)[i] <- names(StageData[i])
+  bg_unip[[i]] <- genemodels[genemodels$geneID %in% bg[[i]],]$lib
+  bg_unip[[i]] <- bg_unip[[i]][!is.na(bg_unip[[i]])]
+  names(bg_unip)[i] <- names(StageData[i])
+  length(bg_unip[[i]]) <- max(lengths(bg_unip))
+}
+david_bg <- do.call(cbind, bg_unip)
+write.table(david_bg, file="~/Documents/NIEHS_LSU_UCD/rnaseq/david_results/180409_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+
+
+```
+
+
+

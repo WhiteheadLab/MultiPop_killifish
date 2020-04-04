@@ -1,0 +1,906 @@
+---
+title: "F2-specific DEG analysis"
+author: "Jane Park"
+date: "3/4/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Libraries
+
+```{r libraries}
+library(readxl)
+library(tximportData)
+library(tximport)
+library(lattice)
+library(biomaRt)
+library(readr)
+library(gplots)
+library(RColorBrewer)
+library(edgeR)
+library(limma)
+library(tidyr)
+library(dplyr)
+library(data.table)
+
+source("~/Documents/NIEHS_LSU_UCD/scripts/fun_MeanVar_all.R")
+source("~/Documents/NIEHS_LSU_UCD/scripts/fun_TreatMeans.R")
+
+setwd("~/Documents/NIEHS_LSU_UCD/niehs/transgen/")
+
+```
+
+
+## Import quantification tables 
+
+Name quantification files path: 
+```{r}
+dir <- "~/Documents/NIEHS_LSU_UCD/niehs/transgen/salmon_quant"
+files_list <- list.files(dir)
+files <- file.path(dir,files_list, "quant.sf")
+all(file.exists(files))
+names <- gsub("_quant|_USP.*", "", files_list)
+names(files) <- names
+```
+
+## Associate transcripts to gene IDs 
+
+I'm using the gene model annotation file from supplementary materials of Noah Reid's 2016 paper, ["The genomic landscape of rapid repeated evolutionary adaptation to toxic pollution in wild fish"](http://science.sciencemag.org/content/suppl/2016/12/07/354.6317.1305.DC1)
+
+Subset the appropriate columns from the above table. 
+
+"We first make a data.frame called tx2gene with two columns: 1) transcript ID and 2) gene ID. The column names do not matter but this column order must be used. The transcript ID must be the same one used in the abundance files."
+
+```{r}
+gene_names <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Fhet_gene_transcript_names.csv")
+cols <- c("row", "transcript_id", "gene_id")
+colnames(gene_names) <- cols
+tx2gene <- gene_names[,2:3]
+head(tx2gene)
+```
+
+
+## Convert transcript-level counts to gene-level counts, and save as a DGEList object for easy handling. Counts are scaled for library size.
+txi$abundance is the TPM table for gene-level estimates. txi$counts is the counts normalized for transcript lengths. 
+
+```{r}
+txi <- tximport(files, type="salmon", tx2gene=tx2gene, countsFromAbundance = "lengthScaledTPM")
+names(txi)
+head(txi$counts)
+
+y <- DGEList(txi$counts)
+head(y$samples)
+```
+
+```{r Extract sample info from names}
+samplenames <- rownames(y$samples)
+y$samples[,"group"] <- NA
+y$samples[,"exposure"] <- NA
+y$samples[,"stage"] <- NA
+y$samples[,"gen"] <- NA
+y$samples[,"trt"] <- NA
+
+for (i in 1:nrow(y$samples)) {
+  if (nchar(samplenames)[i] == 13) {
+    
+    y$samples$group[i] <- substring(samplenames[i], 8, 8)
+    y$samples$exposure[i] <- substring(samplenames[i], 9,10)
+    y$samples$stage[i] <- substring(samplenames[i], 11, 12)
+    y$samples$gen[i] <- "F1"
+    
+  } else if (nchar(samplenames)[i] == 12) {
+    
+    y$samples$group[i] <- substring(samplenames[i], 4, 4)
+    y$samples$exposure[i] <- substring(samplenames[i], 6,7)
+    y$samples$stage[i] <- substring(samplenames[i], 9, 10)
+    y$samples$gen[i] <- "F1"
+      
+      } else {
+        y$samples$group[i] <- substring(samplenames[i], 1, 1)
+        y$samples$exposure[i] <- substring(samplenames[i], 4,5)
+        y$samples$stage[i] <- substring(samplenames[i], 7, 8)
+        y$samples$gen[i] <- "F2"
+      }
+    }
+y$samples$trt <- with(y$samples, paste(gen, group, stage, exposure, sep="."))
+
+y$samples$group <- as.factor(y$samples$group)
+y$samples$exposure <- as.factor(y$samples$exposure)
+y$samples$stage <- as.factor(y$samples$stage)
+y$samples$gen <- as.factor(y$samples$gen)
+y$samples$trt <- as.factor(y$samples$trt)
+ 
+```
+
+## Filtration
+
+Save unfiltered, untransformed data as another object
+```{r}
+zz <- y	
+write.table(zz$counts, file="~/Documents/NIEHS_LSU_UCD/niehs/transgen/190206_unfiltered_counts.csv",
+	col.names=TRUE, row.names=TRUE, sep="\t")
+write.table(zz$samples, file="~/Documents/NIEHS_LSU_UCD/niehs/transgen/190206_all_samples.csv",
+	col.names=TRUE, row.names=TRUE, sep="\t")
+```
+
+## Subset data by generation and stage
+```{r}
+f1_early <- zz[,zz$samples$stage=="19" & zz$samples$gen== "F1"]
+f1_late <- zz[,zz$samples$stage=="35" & zz$samples$gen == "F1"]
+
+f2_early <- zz[,zz$samples$stage=="19" & zz$samples$gen== "F2"]
+f2_late <- zz[,zz$samples$stage=="35" & zz$samples$gen == "F2"]
+```
+
+
+#### Filter each stage subset independently:
+```{r}
+StageData <- list("f1_early"=f1_early,"f1_late"=f1_late, "f2_early"=f2_early, "f2_late"=f2_late)
+for (i in 1:length(StageData)) {
+	d = list()
+	treat <- unique(StageData[[i]]$samples$trt)
+	length(treat)
+	for (j in 1:length(treat)) {
+		a <- which(StageData[[i]]$samples$trt==treat[j])
+		b <- colnames(StageData[[i]]$counts[,a])
+		kp <- rowSums(StageData[[i]]$counts[,a] > 5) >=4
+		g <- which(kp==TRUE)
+		d[[j]] <- g
+	}
+
+	filt_genes <- unique(names(unlist(d, use.names=TRUE)))
+	length(filt_genes)
+	StageData[[i]] <- StageData[[i]][filt_genes,]
+}
+
+# Save filtered background gene lists for each stage: 
+for (i in 1:length(StageData)) {
+  write.table(rownames(StageData[[i]]$counts), file= paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_", names(StageData[i]), "_background.csv", sep=""),
+	col.names=FALSE, row.names=FALSE, sep="\t")
+}
+
+```
+
+### Log transform and normalize each stage subset: 
+
+```{r}
+
+#Transform each stage-specific subset by the same constant: 
+for (i in 1:length(StageData)) {
+  StageData[[i]]$counts <- log2(StageData[[i]]$counts + 10)
+}
+
+#Normalization of stage-specific subsets: 
+mean_counts <- list()
+length(mean_counts) <- 4
+norm_counts <- list()
+length(norm_counts) <- 4
+
+for (i in 1:length(StageData)) {
+  mean_counts[[i]] <- colMeans(StageData[[i]]$counts)
+  norm_counts[[i]] <- sweep(StageData[[i]]$counts, 2, colMeans(StageData[[i]]$counts))
+  grandmean[[i]] <- mean(mean_counts[[i]])
+  norm_counts[[i]] <- norm_counts[[i]] + grandmean[[i]]
+  StageData[[i]]$counts <- norm_counts[[i]]
+}
+
+f1_early <- StageData$f1_early
+f1_late <- StageData$f1_late
+
+f2_early <- StageData$f2_early
+f2_late <- StageData$f2_late
+
+```
+
+
+### Calculate slope of regression between mean and sd of counts 
+
+```{r}
+
+ttrans <- t(f1_early$counts)
+ttrans <- as.data.frame(ttrans)
+ttrans$trt <- f1_early$samples$trt
+
+mv <- MeanVar(ttrans)
+mea <- as.vector(mv$mean)
+sd <- as.vector(mv$stdev)
+slope <- (coef(lm(sd~mea))[2])
+print(slope)
+
+plot(mea,sd, pch=16, cex=0.5, main="Mean-SD relationship of Normalized Log(counts + 10), slope=-.035")
+abline(coef(lm(sd~mea)),col="red",lwd=3)
+lines(lowess(mea,sd,f=0.2),col="blue",lwd=3)
+
+```
+
+
+###Save normalized counts and samples for each stage subset:
+```{r}
+for (i in 1:length(StageData)) {
+  c <- as.data.frame(StageData[[i]]$counts)
+  write.table(c, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_", names(StageData[i]),"normcounts.csv", sep=""),  col.names=TRUE, row.names=TRUE, sep=",")
+  
+   write.table(StageData[[i]]$samples, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_", names(StageData[i]),"samples.csv", sep=""),  col.names=TRUE, row.names=TRUE, sep=",")
+}
+```
+
+
+## Unsupervised clustering of Data/ MDS plot:
+
+```{r}
+par(mfrow=c(1,1))
+group <- f1_late$samples$group
+treats <- f1_late$samples$trt
+exp <- f1_late$samples$exposure
+
+col.group <- as.factor(group)
+levels(col.group) <-  brewer.pal(nlevels(col.group), "Dark2")
+col.group <- as.character(col.group)
+
+col.exp <- as.factor(exp)
+levels(col.exp) <- brewer.pal(nlevels(col.exp), "Dark2")
+col.exp <- as.character(col.exp)
+
+col.treat <- as.factor(treats)
+coul <- brewer.pal(9, "Set1")
+levels(col.treat) <- colorRampPalette(coul)(nlevels(col.treat))
+col.treat <- as.character(col.treat)
+
+#mds_stat <- plotMDS(f1_late, labels=f1_late$samples$trt, top=20044, col=col.group, dim=c(1, 2))
+
+project.pca <- prcomp(t(f1_late$counts))
+summary(project.pca)
+project.pca.proportionvariances <- ((project.pca$sdev^2) / (sum(project.pca$sdev^2)))*100
+
+#par(mar=c(1,1,1,1), cex=1.0, cex.main=0.8, cex.axis=0.8)
+
+#Plots scatter plot for PC 1 and 2
+plot(project.pca$x, type="n", main="Principal components analysis bi-plot", xlab=paste("PC1, ", round(project.pca.proportionvariances[1], 2), "%"), ylab=paste("PC2, ", round(project.pca.proportionvariances[2], 2), "%"))
+points(project.pca$x, col=col.exp, pch=16, cex=1)
+
+```
+
+## Stage-specific DEG Tests 
+
+Perform lm() and anova() for each stage in one loop: 
+
+Question: should generation be nested under parental treatment?
+
+```{r}
+stages.dge <- list()
+pdat.stages <- list()
+
+for (i in 1:length(StageData)) {
+  stages.dge[[i]] <- as.data.frame(t(StageData[[i]]$counts))
+  names(stages.dge)[i] <- names(StageData)[i]
+  stages.dge[[i]]$group <- StageData[[i]]$samples$group
+  stages.dge[[i]]$exposure <- StageData[[i]]$samples$exposure
+  stages.dge[[i]]$trt <- StageData[[i]]$samples$trt
+  
+  d <- dim(stages.dge[[i]])[2]-3
+  glist <- colnames(stages.dge[[i]][,1:d])
+  cofs <- c("group", "exposure", "group:exposure")
+  pdat.stages[[i]] <- matrix(nrow=length(glist), ncol=length(cofs))
+  colnames(pdat.stages[[i]]) <- cofs
+  rownames(pdat.stages[[i]]) <- glist
+  names(pdat.stages)[i] <- names(StageData)[i]
+  
+  for (j in 1:ncol(stages.dge[[i]][,1:d])) {
+    g <- which(rownames(pdat.stages[[i]])==colnames(stages.dge[[i]])[j])
+    l <- lm(formula=stages.dge[[i]][,j] ~ group*exposure, data=stages.dge[[i]])
+    a <- anova(l)
+    p <- a$`Pr(>F)`[1:3]
+    pdat.stages[[i]][g,] <- p
+  }
+  
+  pdat.stages[[i]] <- as.data.frame(pdat.stages[[i]])
+  names(pdat.stages[[i]]) <- gsub(":", "_", names(pdat.stages[[i]]))
+  write.table(pdat.stages[[i]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_",names(pdat.stages)[i],"_unadj_pvalues.csv"), 
+		col.names=TRUE, row.names=TRUE, sep=",")
+}
+
+```
+
+
+#### Adjust p-values for FDR
+
+```{r}
+#Vectorize and apply p.adjust to stages 19, 28, and 35 subsets: 
+
+#fdr.ear <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_ear_unadj_pvalues.csv", header=TRUE)
+#fdr.mid <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_mid_unadj_pvalues.csv", header=TRUE)
+#fdr.lat <- read.csv("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/180329_lat_unadj_pvalues.csv", header=TRUE)
+
+#fdr.ear$gene <- rownames(fdr.ear)
+#fdr.mid$gene <- rownames(fdr.mid)
+#fdr.lat$gene <- rownames(fdr.lat)
+#pdat.stages <- list(early = fdr.ear, middle = fdr.mid, late = fdr.lat)
+
+adj.pdat.stages <- list()
+deg.stages <- list()
+
+for (i in 1:length(names(pdat.stages))) {
+	adj.pdat.stages[[i]] <- setDT(pdat.stages[[i]], keep.rownames=TRUE)
+	colnames(adj.pdat.stages[[i]])[1] <- "Gene"
+	adj.pdat.stages[[i]] <- adj.pdat.stages[[i]] %>% 
+	gather(`group`, `exposure`, `group_exposure`, 
+		key = "cof", value = "pvals")
+
+	adj.pdat.stages[[i]]$adj.pvals <- p.adjust(adj.pdat.stages[[i]]$pvals, method="fdr")
+	deg.stages[[i]] <- adj.pdat.stages[[i]][adj.pdat.stages[[i]]$adj.pvals <= 0.05,]
+}
+
+#Write all pvalues to csv. 
+
+##For each stage subset: 
+names(adj.pdat.stages) <- c("AdjPval_f1_Early", "AdjPval_f1_Late", "AdjPval_f2_Early", "AdjPval_f2_Late")
+for (i in 1:length(names(adj.pdat.stages))) {
+	write.table(adj.pdat.stages[[i]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_pval_", names(adj.pdat.stages[i]), ".csv", sep=""),
+		col.names=TRUE, row.names=FALSE, sep=",")
+}
+
+#Write adjusted pvalues of DEG (p < 0.05) to csv:
+
+names(deg.stages) <- c("f1_early", "f1_late", "f2_early", "f2_late") 
+for (i in 1:length(names(deg.stages))) {
+  if (nrow(deg.stages[[i]]) > 1) {
+	write.table(deg.stages[[i]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_005_deg_", names(adj.pdat.stages[i]), ".csv", sep=""), 
+		col.names=TRUE, row.names=FALSE, sep=",")
+  }
+}
+
+#Write DEG with adj p < 0.1 to csv: 
+deg.stages.1 <- list()
+for (i in 1:length(deg.stages)) {
+  deg.stages.1[[i]] <- adj.pdat.stages[[i]][adj.pdat.stages[[i]]$adj.pvals <= 0.1,]
+  if (nrow(deg.stages.1[[i]]) > 1) {
+	write.table(deg.stages.1[[i]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_01_deg_", names(adj.pdat.stages[i]), ".csv", sep=""), 
+		col.names=TRUE, row.names=FALSE, sep=",")
+  }
+}
+names(deg.stages.1) <- names(deg.stages)
+```
+
+
+### Save DEG unique to main or interaction effects for each stage: 
+
+Read in DEGs from saved files
+```{r}
+deg.stages <- list()
+deg.stages$f1_Early <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_005_deg_AdjPval_f1_Early.csv", header=TRUE)
+deg.stages$f1_Late <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_005_deg_AdjPval_f1_Late.csv", header=TRUE)
+deg.stages$f2_Early <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_005_deg_AdjPval_f2_Early.csv", header=TRUE)
+deg.stages$f2_Late <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_005_deg_AdjPval_f2_Late.csv", header=TRUE)
+
+deg.stages.1 <- list()
+deg.stages.1$f1_Early <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_01_deg_AdjPval_f1_Early.csv", header=TRUE)
+deg.stages.1$f1_Late <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_01_deg_AdjPval_f1_Late.csv", header=TRUE)
+deg.stages.1$f2_Early <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_01_deg_AdjPval_f2_Early.csv", header=TRUE)
+deg.stages.1$f2_Late <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_fdradj_01_deg_AdjPval_f2_Late.csv", header=TRUE)
+```
+
+Exclude interaction effect DEGs from main effect DEGs
+```{r}
+for (i in 1:length(names(deg.stages))) {
+  a <- deg.stages[[i]][deg.stages[[i]]$cof=="group",]
+  b <- deg.stages[[i]][deg.stages[[i]]$cof=="exposure",]
+  c <- deg.stages[[i]][deg.stages[[i]]$cof=="group_exposure",]
+  
+  a2 <- a[!(a$Gene %in% c$Gene),]
+  b2 <- b[!(b$Gene %in% c$Gene),]
+  #c2 <- c[!(c$Gene %in% a$Gene) & !(c$Gene %in% b$Gene),]
+  
+    write.table(a2, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp005_", names(deg.stages[i]), "_unique_group.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+    write.table(b2, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp005_", names(deg.stages[i]), "_unique_exposure.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+    write.table(c, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp005_", names(deg.stages[i]), "_unique_groupxexposure.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+}
+
+
+for (i in 1:length(names(deg.stages.1))) {
+  a <- deg.stages.1[[i]][deg.stages.1[[i]]$cof=="group",]
+  b <- deg.stages.1[[i]][deg.stages.1[[i]]$cof=="exposure",]
+  c <- deg.stages.1[[i]][deg.stages.1[[i]]$cof=="group_exposure",]
+  
+  a2 <- a[!(a$Gene %in% c$Gene),]
+  b2 <- b[!(b$Gene %in% c$Gene),]
+  #c2 <- c[!(c$Gene %in% a$Gene) & !(c$Gene %in% b$Gene),]
+  
+    write.table(a2, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_", names(deg.stages.1[i]), "_unique_group.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+    write.table(b2, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_", names(deg.stages.1[i]), "_unique_exposure.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+    write.table(c, paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_", names(deg.stages.1[i]), "_unique_groupxexposure.csv", sep=""), col.names=TRUE, row.names=FALSE, sep=",")
+}
+
+```
+
+
+## Summarize gene expression patterns in heat map
+
+###Extract read counts for each DEG analysis from all generations for each stage
+
+
+```{r}
+
+#Set up list of all DEGs by stage: 
+f1_e_group <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_early_unique_group.csv")
+f1_e_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_early_unique_exposure.csv")
+#f1_e_group_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190306_adjp01_f1_early_unique_groupxexposure.csv")
+
+f1_l_group <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_late_unique_group.csv")
+f1_l_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_late_unique_exposure.csv")
+f1_l_group_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_late_unique_groupxexposure.csv")
+
+f2_e_group <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_early_unique_group.csv")
+f2_e_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_early_unique_exposure.csv")
+f2_e_group_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_early_unique_groupxexposure.csv")
+
+f2_l_group <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_late_unique_group.csv")
+f2_l_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_late_unique_exposure.csv")
+f2_l_group_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_late_unique_groupxexposure.csv")
+
+f1_e <- list("group" = f1_e_group, "exposure" = f1_e_exposure)
+f1_l <- list("group" = f1_l_group, "exposure" = f1_l_exposure, "group_exposure" = f1_l_group_exposure)
+f2_e <- list("group" = f2_e_group, "exposure"=f2_e_exposure, "group_exposure" = f2_e_group_exposure)
+f2_l <- list("group" = f2_l_group, "exposure"=f2_l_exposure, "group_exposure" = f2_l_group_exposure)
+
+early_stagecounts <- list("f1_early" = f1_e, "f2_early"=f2_e)
+late_stagecounts <- list("f1_late" = f1_l, "f2_late"=f2_l)
+stagecounts <- list("early" = early_stagecounts, "late"=late_stagecounts)
+
+```
+
+
+Are there any shared DEGs between effects from generation-specific analyses?
+
+```{r}
+exp_35_shared <- intersect(stagecounts$late$f1_late$exposure$Gene, stagecounts$late$f2_late$exposure$Gene)
+exp_19_shared <- intersect(stagecounts$early$f1_early$exposure$Gene, stagecounts$early$f2_early$exposure$Gene)
+```
+
+Set up early and late stage dataframes across the two generations for visualization: 
+
+```{r}
+d = list()
+treat <- unique(zz$samples$trt)
+head(treat)
+
+for (i in 1:length(treat)) {
+	a <- which(zz$samples$trt==treat[i])
+	b <- colnames(zz$counts[,a])
+	kp <- rowSums(zz$counts[,a] > 5) >=4 
+	g <- which(kp==TRUE)
+	d[[i]] <- g
+}
+
+#Subset the DGEList object y by the gene list created above:
+nrow(zz$counts)
+filt_genes <- unique(names(unlist(d, use.names=TRUE)))
+length(filt_genes)
+y <- zz[filt_genes,]
+nrow(y$counts)
+
+trans <- log2(y$counts+10)
+
+#### Normalize log-transformed counts for all samples: 
+mean_counts <- colMeans(trans)
+norm_counts <- sweep(trans, 2, colMeans(trans), "-")
+grandmean <- mean(mean_counts)
+norm_counts <- norm_counts + grandmean
+
+y$counts <- norm_counts
+
+#early stages from f1: 
+early <- y[,y$samples$stage=="19"]
+late <- y[,y$samples$stage=="35"]
+
+stages <- list("early"=early, "late" = late)
+```
+
+
+```{r}
+#Set up treatment norm and grandnorm lists: 
+trtnorm <- list()
+trtnorm$early <- list()
+length(trtnorm$early) <- 2
+trtnorm$late <- list()
+length(trtnorm$late) <- 2
+
+gnorm <- list()
+gnorm$early <- list()
+length(gnorm$early) <- 2
+gnorm$late <- list()
+length(gnorm$late) <- 2
+
+
+#Subset count data by DEGs for each stage and coefficient: 
+
+for (k in 1:length(stagecounts)) {
+  for (i in 1:length(stagecounts[[k]])) {
+  for (j in 1:length(stagecounts[[k]][[i]])) {
+    trtnorm[[k]][[i]][[j]] <- stages[[k]][as.vector(stagecounts[[k]][[i]][[j]]$Gene),]$counts
+    names(trtnorm)[k] <- names(stagecounts)[k]
+    names(trtnorm[[k]])[i] <- names(stagecounts[[k]])[i]
+    names(trtnorm[[k]][[i]])[j] <- as.vector(unique(stagecounts[[k]][[i]][[j]]$cof))
+  }
+  }
+
+}
+
+#Calculate expression values for normalization by treatment means and grand means:
+
+tmv <- list()
+tmv$early <- list()
+length(tmv$early) <- 2
+tmv$late <- list()
+length(tmv$late) <- 2
+
+gnorm <- list()
+gnorm$early <- list()
+length(gnorm$early) <- 2
+gnorm$late <- list()
+length(gnorm$late) <- 2
+
+treatnorm <- list()
+treatnorm$early <- list()
+length(treatnorm$early) <- 2
+treatnorm$late <- list()
+length(treatnorm$late) <- 2
+
+
+for (i in 1:length(trtnorm)) {
+  for (j in 1:length(trtnorm[[i]])) {
+    for (k in 1:length(trtnorm[[i]][[j]])) {
+      
+    tmv[[i]][[j]][[k]] <- as.data.frame(t(trtnorm[[i]][[j]][[k]]))
+    tmv[[i]][[j]][[k]]$trt <- stages[[i]]$samples$trt
+    
+    if (ncol(tmv[[i]][[j]][[k]]) > 2 & i==1) {
+      tmv[[i]][[j]][[k]] <- MeanVar(tmv[[i]][[j]][[k]])
+      tmv[[i]][[j]][[k]] <- t(tmv[[i]][[j]][[k]]$mean)
+      
+      tmv[[i]][[j]][[k]] <- tmv[[i]][[j]][[k]][,c("F1.C.19.00", "F1.C.19.56", "F1.E.19.00", "F1.E.19.56",
+                                                  "F2.C.19.00", "F2.C.19.56", "F2.E.19.00", "F2.E.19.56")]
+     treatnorm[[i]][[j]][[k]] <- as.data.frame(cbind(tmv[[i]][[j]][[k]][,1:2]-tmv[[i]][[j]][[k]][,1],
+                                                      tmv[[i]][[j]][[k]][,3:4]-tmv[[i]][[j]][[k]][,3],
+                                                      tmv[[i]][[j]][[k]][,5:6]-tmv[[i]][[j]][[k]][,5], 
+                                                      tmv[[i]][[j]][[k]][,7:8]-tmv[[i]][[j]][[k]][,7]))
+
+       gnorm[[i]][[j]][[k]] <- as.data.frame(cbind(tmv[[i]][[j]][[k]][,c(1:4)]-rowMeans(tmv[[i]][[j]][[k]][,c(1:4)]), tmv[[i]][[j]][[k]][,c(5:8)]-rowMeans(tmv[[i]][[j]][[k]][,c(5:8)])))
+       
+
+  write.table(treatnorm[[i]][[j]][[k]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/191018_", names(trtnorm[[i]])[j], "_",  names(trtnorm[[i]][[j]])[k], "_trtnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+    write.table(gnorm[[i]][[j]][[k]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/191018_", names(trtnorm[[i]])[j], "_",  names(trtnorm[[i]][[j]])[k], "_gnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+
+    } else if (ncol(tmv[[i]][[j]][[k]]) > 2 & i==2) {
+      tmv[[i]][[j]][[k]] <- MeanVar(tmv[[i]][[j]][[k]])
+      tmv[[i]][[j]][[k]] <- t(tmv[[i]][[j]][[k]]$mean)
+      
+      tmv[[i]][[j]][[k]] <- tmv[[i]][[j]][[k]][,c("F1.C.35.00", "F1.C.35.56", "F1.E.35.00", "F1.E.35.56",  "F2.C.35.00", "F2.C.35.56", "F2.E.35.00", "F2.E.35.56")]
+      treatnorm[[i]][[j]][[k]] <- as.data.frame(cbind(tmv[[i]][[j]][[k]][,1:2]-tmv[[i]][[j]][[k]][,1],
+                                                      tmv[[i]][[j]][[k]][,3:4]-tmv[[i]][[j]][[k]][,3],
+                                                      tmv[[i]][[j]][[k]][,5:6]-tmv[[i]][[j]][[k]][,5],
+                                                      tmv[[i]][[j]][[k]][,7:8]-tmv[[i]][[j]][[k]][,7]))
+      
+       gnorm[[i]][[j]][[k]] <- as.data.frame(cbind(tmv[[i]][[j]][[k]][,c(1:4)]-rowMeans(tmv[[i]][[j]][[k]][,c(1:4)]), tmv[[i]][[j]][[k]][,c(5:8)]-rowMeans(tmv[[i]][[j]][[k]][,c(5:8)])))
+                                                  
+    
+    write.table(treatnorm[[i]][[j]][[k]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/191018_", names(trtnorm[[i]])[j], "_",  names(trtnorm[[i]][[j]])[k], "_trtnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+    
+    write.table(gnorm[[i]][[j]][[k]], paste("~/Documents/NIEHS_LSU_UCD/niehs/transgen/191018_", names(trtnorm[[i]])[j], "_",  names(trtnorm[[i]][[j]])[k], "_gnorm.txt", sep=""), col.names=NA, row.names=TRUE, sep="\t")
+    }
+      
+    }
+  }
+}
+
+names(gnorm[[1]]) <- names(trtnorm[[1]])
+names(gnorm[[2]]) <- names(trtnorm[[2]])
+names(gnorm[[1]][[1]]) <- names(trtnorm[[1]][[1]])
+names(gnorm[[1]][[2]]) <- names(trtnorm[[1]][[2]])
+names(gnorm[[2]][[1]]) <- names(trtnorm[[2]][[1]])
+names(gnorm[[2]][[2]]) <- names(trtnorm[[2]][[2]])
+
+names(treatnorm[[1]]) <- names(trtnorm[[1]])
+names(treatnorm[[2]]) <- names(trtnorm[[2]])
+names(treatnorm[[1]][[1]]) <- names(trtnorm[[1]][[1]])
+names(treatnorm[[1]][[2]]) <- names(trtnorm[[1]][[2]])
+names(treatnorm[[2]][[1]]) <- names(trtnorm[[2]][[1]])
+names(treatnorm[[2]][[2]]) <- names(trtnorm[[2]][[2]])
+
+```
+
+For DEG (adj p < 0.1): 
+Make heatmaps of expression patterns
+
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+
+f1_parent_deg <- pheatmap(gnorm$late$f1_late$group, color = colorRampPalette(c("turquoise1", "black", "yellow"))(50),breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows="correlation", clustering_method="average", cluster_cols=FALSE, show_rownames = FALSE, main= "Main Effect of Parent Treatment in F1", gaps_col=4, border_color=NA)
+
+f2_parent_deg <- pheatmap(gnorm$late$f2_late$group[,c("F1.C.35.00", "F1.C.35.56", "F1.E.35.00", "F1.E.35.56", "F2.C.35.00", "F2.C.35.56", "F2.E.35.00", "F2.E.35.56")], color = colorRampPalette(c("turquoise1", "black", "yellow"))(50),breaks=seq(from=-2, to=2, length.out=51), clustering_distance_rows="correlation", clustering_method="average", cluster_cols=FALSE, show_rownames = FALSE, main= "Main Effect of Parent Treatment in F2", gaps_col=4, border_color=NA)
+```
+
+##Dose response gene expression patterns for visualization
+
+```{r}
+f1_l_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f1_late_unique_exposure.csv")
+f2_l_exposure <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp01_f2_late_unique_exposure.csv")
+head(f1_l_exposure)
+
+f1_l_exposure05 <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp005_f1_late_unique_exposure.csv")
+f2_l_exposure05 <- read.csv("~/Documents/NIEHS_LSU_UCD/niehs/transgen/190926_adjp005_f2_late_unique_exposure.csv")
+head(f1_l_exposure05)
+
+#subset normalized counts from F1 late and F2 late data sets by DR genes
+f135 <- StageData$f1_late
+f135 <- f135[,order(f135$samples$trt)]
+f135_dr05 <- f135[as.vector(f1_l_exposure05$Gene), ]$counts
+
+f235 <- StageData$f2_late
+f235_dr05 <- f235[as.vector(f2_l_exposure05$Gene), ]$counts 
+
+#make table of treatment averages
+f1_tmv <- as.data.frame(t(f135_dr05))
+f1_tmv$trt <- f135$samples$trt
+f1_tmv <- MeanVar(f1_tmv)
+f1_tmv <- t(f1_tmv$mean)
+f135_gnorm <- as.data.frame(cbind(f1_tmv[,c(1:2)] - rowMeans(f1_tmv[,c(1:2)]), f1_tmv[,c(3:4)] - rowMeans(f1_tmv[,c(3:4)])))
+f135_gnorm <- as.data.frame(f135_gnorm[c(1,3,2,4)])
+write.table(f135_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/transgen/190712_f1_late_exp005_f1gnorm.txt", col.names=NA, row.names=TRUE, sep="\t")
+  
+  
+f2_tmv <- as.data.frame(t(f235_dr05))
+f2_tmv$trt <- f235$samples$trt
+f2_tmv <- MeanVar(f2_tmv)
+f2_tmv <- t(f2_tmv$mean)
+f235_gnorm <- as.data.frame(cbind(f2_tmv[,c(1:2)] - rowMeans(f2_tmv[,c(1:2)]), f2_tmv[,c(3:4)] - rowMeans(f2_tmv[,c(3:4)])))
+f235_gnorm <- as.data.frame(f235_gnorm[c(1,3,2,4)])
+write.table(f235_gnorm, "~/Documents/NIEHS_LSU_UCD/niehs/transgen/190712_f2_late_exp005_f2gnorm.txt", col.names=NA, row.names=TRUE, sep="\t")
+
+f1dose_gnorm <- as.data.frame(cbind(f1_tmv[,c(1,3)] - rowMeans(f1_tmv[,c(1,3)]), f1_tmv[,c(2,4)] - rowMeans(f1_tmv[,c(2,4)])))
+
+```
+
+
+## DAVID Analysis set up
+After generating heatmaps and performing cluster analysis, save all clustered genes into a multi-list file for DAVID, making sure to extract only the genes with uniprot accession numbers
+
+1. List saved cluster files and import their data
+2. Make empty dataframe with n columns, n=number of total cluster files
+3. Name of cluster file --> name of column, pipe funhe gene id's from each file into each column
+4. Make another empty dataframe with same column names and number of columns
+5. For every item in the column vector, if there's an entry for the uniprot accession, then write that uniprot entry into the dataframe
+6. Repeat above for background genelists for each stage.
+
+```{r}
+dir <- "~/Documents/NIEHS_LSU_UCD/niehs/transgen/mev_heatmap_expression_tables"
+files_list <- list.files(path = dir, pattern = "190712")
+files <- file.path(dir, files_list)
+filenames <- gsub("190712_", "", files_list)
+filenames <- gsub(".txt", "", filenames)
+
+#Dump cluster gene lists into a list element
+geneclusters <- list()
+for (i in 1:length(files)) {
+  geneclusters[[i]] <- read.csv(files[i], header=TRUE, sep = "\t")
+  colnames(geneclusters[[i]])[2] <- "Gene"
+  names(geneclusters)[i] <- filenames[i]
+  geneclusters[[i]] <- as.vector(geneclusters[[i]]$Gene)
+}
+
+#Filter above genes by those with uniprot accession number: 
+library(readxl)
+genemodels <- as.data.frame(read_xlsx("~/Documents/NIEHS_LSU_UCD/rnaseq/Ranalysis/Gene.Models.Conservative.and.Liberal.xlsx"))
+names(genemodels) <- c("geneID", "name", "cons", "lib")
+unip <- list()
+
+for (i in 1:length(geneclusters)){
+  unip[[i]] <- genemodels[genemodels$geneID %in% geneclusters[[i]],]$lib
+  unip[[i]] <- unip[[i]][!is.na(unip[[i]])]
+  names(unip)[i] <- names(geneclusters)[i]
+}
+#Assign same length to all vectors, then run cbind: 
+n <- max(lengths(unip))
+for (i in 1:length(unip)) {
+  length(unip[[i]]) <- n
+}
+david <- do.call(cbind, unip)
+david[is.na(david)] <- " " 
+write.table(david, file="~/Documents/NIEHS_LSU_UCD/niehs/transgen/190712_clustergenelists.txt", row.names = FALSE, col.names = TRUE, sep="\t", quote=FALSE)
+
+#Compile background genelist for all-stages analysis by uniprot accession IDs and store one multi-list file: 
+
+bg <- as.vector(rownames(y$counts))
+bg_unip <- genemodels[genemodels$geneID %in% bg,]$lib
+bg_unip <- bg_unip[!is.na(bg_unip)]
+bg_unip <- as.data.frame(bg_unip)
+write.table(bg_unip, file="~/Documents/NIEHS_LSU_UCD/niehs/transgen/190226_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+
+
+#Compile background genelists for stage-specific analyses by uniprot accession IDs and store one multi-list file: 
+bg <- vector("list", 4)
+bg_unip <- vector("list", 4)
+for (i in 1:length(StageData)) {
+  bg[[i]] <- as.vector(rownames(StageData[[i]]$counts))
+  names(bg)[i] <- names(StageData[i])
+  bg_unip[[i]] <- genemodels[genemodels$geneID %in% bg[[i]],]$lib
+  bg_unip[[i]] <- bg_unip[[i]][!is.na(bg_unip[[i]])]
+  names(bg_unip)[i] <- names(StageData[i])
+}
+
+for (i in 1:length(bg_unip)) {
+  length(bg_unip[[i]]) <- max(lengths(bg_unip))
+}
+  
+david_bg <- do.call(cbind, bg_unip)
+write.table(david_bg, file="~/Documents/NIEHS_LSU_UCD/niehs/transgen/190308_backgroundgenelists.txt", row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+
+
+```
+
+
+## PCA Plots of lineage main effect genes
+
+
+DGElist subset of all normalized counts by the DEGs for main effect in F2 late and F1 Late
+```{r}
+library(ggplot2)
+f1_35_group <- trtnorm$late$f1_late$group
+f2_35_group <- trtnorm$late$f2_late$group
+
+f1_35_exp <- treatnorm$late$f1_late$exposure
+f2_35_exp <- treatnorm$late$f2_late$exposure
+
+#Subset original data set by stage 35 samples: 
+late <- y[,y$samples$stage=="35"]
+
+#Subset the stage 35 dataset by respective F1 and F2 DEGs: 
+f1_35 <- late[rownames(f1_35_group),]
+f2_35 <- late[rownames(f2_35_group),]
+
+#Normalize each dataset by generation: 
+f1.f1_norm <- f1_35$counts[,which(f1_35$samples$gen=="F1")] - rowMeans(f1_35$counts[,which(f1_35$samples$gen=="F1")])
+f1.f2_norm <- f1_35$counts[,which(f1_35$samples$gen=="F2")] - rowMeans(f1_35$counts[,which(f1_35$samples$gen=="F2")])
+f1_35$counts <- cbind(f1.f1_norm, f1.f2_norm)
+
+f2.f1_norm <- f2_35$counts[,which(f2_35$samples$gen=="F1")] - rowMeans(f2_35$counts[,which(f2_35$samples$gen=="F1")])
+f2.f2_norm <- f2_35$counts[,which(f2_35$samples$gen=="F2")] - rowMeans(f2_35$counts[,which(f2_35$samples$gen=="F2")])
+f2_35$counts <- cbind(f2.f1_norm, f2.f2_norm)
+  
+# Set up F1 DEG dataframe for prcomp analysis: 
+f1_group <- as.data.frame(t(f1_35$counts))
+f1_group$gen <- f1_35$samples$gen
+f1_group$exposure <- f1_35$samples$exposure
+f1_group$group <- f1_35$samples$group
+
+# Make PC dataframe and calculate proportion variances: 
+f1_group.pca <- prcomp(f1_group[,1:154])
+summary(f1_group.pca)
+f1_group.pca.proportionvariances <- ((f1_group.pca$sdev^2) / (sum(f1_group.pca$sdev^2)))*100
+f1_group.PCi <- data.frame(f1_group.pca$x, gen=f1_group$gen, group=f1_group$group, exposure=f1_group$exposure)
+
+
+# Set up F2 DEG dataframe for prcomp analysis:
+f2_group <- as.data.frame(t(f2_35$counts))
+f2_group$gen <- f2_35$samples$gen
+f2_group$exposure <- f2_35$samples$exposure
+f2_group$group <- f2_35$samples$group
+
+
+# Make PC dataframe and calculate proportion variances:  
+PC<-prcomp(f2_group[,1:246])
+summary(PC)
+pca.proportionvariances <- ((PC$sdev^2) / (sum(PC$sdev^2)))*100
+PCi<-data.frame(PC$x, gen=f2_group$gen, group = f2_group$group, exposure = f2_group$exposure)
+
+
+# Make PCA plots for F1 DEGs: 
+q <- ggplot(f1_group.PCi, aes(x=PC1, y=PC2, color=group, 
+                              shape=gen,
+                              fill=factor(ifelse(exposure=="56", group, "white")))) +
+  scale_color_manual(name="Lineage", values=c("steelblue3", "red4")) + 
+  scale_shape_manual(name="Generation", values=c(21,24)) + 
+  scale_fill_manual(name="Exposure", values=c("steelblue3", "red4", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of F1 Lineage Main Effect Genes in All Stage 35 Samples") 
+
+q + geom_point(aes(size=exposure)) + 
+  scale_size_manual(name="Embryo Exposure", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+
+# Make PCA plots for F2 DEGs: 
+p <- ggplot(PCi, aes(x=PC1, y=PC2, color=group,
+                     shape=gen, 
+                     fill=factor(ifelse(exposure=="56", group, "white")))) +
+  scale_color_manual(name="Lineage", values=c("steelblue3", "red4")) + 
+  scale_shape_manual(name="Generation", values=c(21,24)) + 
+  scale_fill_manual(name="Exposure", values=c("steelblue3", "red4", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of F2 Lineage Main Effect Genes in All Stage 35 Samples") 
+
+p + geom_point(aes(size=exposure)) + 
+  scale_size_manual(name="Embryo Exposure", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+  
+# Save plots as PDFs: 
+
+
+
+#Plots scatter plot for PC 1 and 2
+plot(project.pca$x, type="n", main="Principal components analysis bi-plot", xlab=paste("PC1, ", round(project.pca.proportionvariances[1], 2), "%"), ylab=paste("PC2, ", round(project.pca.proportionvariances[2], 2), "%"))
+points(project.pca$x, col=col.exp, pch=16, cex=1)
+
+
+# Make PCA plots for treatment generation-normalized treatment means: 
+f1_gnorm <- gnorm$late$f1_late$group
+f2_gnorm <- gnorm$late$f2_late$group
+
+# Set up F1 DEG dataframe for prcomp analysis: 
+f1_gnorm <- as.data.frame(t(f1_gnorm))
+f1_gnorm$gen <- c("F1", "F1", "F2", "F2", "F1", "F1", "F2", "F2")
+f1_gnorm$exposure <- c("00", "56", "00", "56", "00", "56", "00", "56")
+f1_gnorm$group <- c("C", "C", "C", "C", "E", "E", "E", "E")
+
+# Set up F2 DEG dataframe for prcomp analysis:
+f2_gnorm <- as.data.frame(t(f2_gnorm))
+f2_gnorm$gen <- c("F1", "F1", "F2", "F2", "F1", "F1", "F2", "F2")
+f2_gnorm$exposure <- c("00", "56", "00", "56", "00", "56", "00", "56")
+f2_gnorm$group <- c("C", "C", "C", "C", "E", "E", "E", "E")
+
+# Make F1 DEG PCA dataframe and calculate proportion variances:  
+f1_gnorm.PC <-prcomp(f1_gnorm[,1:154])
+summary(f1_gnorm.PC)
+f1_gnorm.pca.proportionvariances <- ((f1_gnorm.PC$sdev^2) / (sum(f1_gnorm.PC$sdev^2)))*100
+f1_gnorm.PCi<-data.frame(f1_gnorm.PC$x, gen=f1_gnorm$gen, group = f1_gnorm$group, exposure = f1_gnorm$exposure)
+
+# Make F2 DEG PCA dataframe and calculate proportion variances: 
+f2_gnorm.PC <- prcomp(f2_gnorm[,1:246])
+summary(f2_gnorm.PC)
+f2_gnorm.pca.proportionvariances <- ((f2_gnorm.PC$sdev^2) / (sum(f2_gnorm.PC$sdev^2)))*100
+f2_gnorm.PCi<-data.frame(f2_gnorm.PC$x, gen=f2_gnorm$gen, group = f2_gnorm$group, exposure = f2_gnorm$exposure)
+
+
+
+# Make PCA plots for F1 DEGs: 
+r <- ggplot(f1_gnorm.PCi, aes(x=PC1, y=PC2, color=group, 
+                              shape=gen,
+                              fill=factor(ifelse(exposure=="56", group, "white")))) +
+  scale_color_manual(name="Lineage", values=c("steelblue3", "red4")) + 
+  scale_shape_manual(name="Generation", values=c(21,24)) + 
+  scale_fill_manual(name="Exposure", values=c("steelblue3", "red4", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(f1_gnorm.pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(f1_gnorm.pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of F1 Lineage Main Effect Genes in All Stage 35 Treatments Means") 
+
+r + geom_point(aes(size=exposure)) + 
+  scale_size_manual(name="Embryo Exposure", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+
+# Make PCA plots for F2 DEGs: 
+s <- ggplot(f2_gnorm.PCi, aes(x=PC1, y=PC2, color=group,
+                     shape=gen, 
+                     fill=factor(ifelse(exposure=="56", group, "white")))) +
+  scale_color_manual(name="Lineage", values=c("steelblue3", "red4")) + 
+  scale_shape_manual(name="Generation", values=c(21,24)) + 
+  scale_fill_manual(name="Exposure", values=c("steelblue3", "red4", "white")) + 
+  theme_minimal() +
+  xlab(paste("PC1, ", round(f2_gnorm.pca.proportionvariances[1], 2), "%")) + 
+  ylab(paste("PC2, ", round(f2_gnorm.pca.proportionvariances[2], 2), "%")) +
+  ggtitle("PCA of F2 Lineage Main Effect Genes in All Stage 35 Treatment Means") 
+
+s + geom_point(aes(size=exposure)) + 
+  scale_size_manual(name="Embryo Exposure", values=c(3, 3.01)) +
+  guides(fill="none", 
+         size=guide_legend(override.aes=list(shape=c(1,16))))
+
+```
+
