@@ -12,7 +12,9 @@ set -u
 
 cd ~/niehs/Data/
 
-wget -r --user=P202SC18122707-01_20190124_yKaRAK --password=03OadE http://hwftp.novogene.com 
+wget -r --user=P202SC18122707-01_20190124_yKaRAK --password=03OadE ftp://128.120.88.242/
+
+echo -e "\n Done"
 
 
 
