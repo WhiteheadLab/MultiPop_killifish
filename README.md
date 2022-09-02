@@ -1,5 +1,5 @@
 ## Experimental Design:
-* 5 populations of Fundulus grandis were collected across the Gulf of Mexico, only ARS RNA-seq data so far: 
+* 5 populations of Fundulus grandis were collected across the Gulf of Mexico, RNA-seq data for: 
    * ARS: Aquatic Research Station, aquacultured pop in LA
    * GT: Grand Terre, recently oiled pop in LA
    * VB: Vince Bayou, industrial pollution pop from Houston Ship Channel
