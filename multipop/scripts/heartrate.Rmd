@@ -1,0 +1,115 @@
+---
+title: "heartrates"
+author: "Jane Park"
+date: "8/17/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#libraries and workinng directory
+```{r libraries}
+library(readxl)
+library(ggplot2)
+library(tidyverse)
+library(RColorBrewer)
+library(tidyr)
+
+```
+
+# Read in data
+
+```{r pressure, echo=FALSE}
+heartrates <- read_xlsx("151106_embryoheartrate_JP.xlsx")
+```
+
+# Keep only 1 generation and exclude FL 
+
+```{r}
+heartrates <- heartrates[heartrates$Treatment=="C" & heartrates$Population != "FL",]
+```
+
+# Mean and sd function
+
+```{r}
+#+++++++++++++++++++++++++
+# Function to calculate the mean and the standard deviation
+  # for each group
+#+++++++++++++++++++++++++
+# data : a data frame
+# varname : the name of a column containing the variable
+  #to be summariezed
+# groupnames : vector of column names to be used as
+  # grouping variables
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+```
+
+# Summarize data with above function
+
+```{r}
+hr2 <- data_summary(heartrates, varname="BPM", groupnames=c("Population", "Concentration"))
+hr2$Concentration <- as.factor(hr2$Concentration)
+hr2$Population <- as.factor(hr2$Population)
+levels(hr2$Population) <- list("LA-REF"="ARS", "LA-DWH" = "GT", "TX-REF" = "GB", "TX-SF" = "VB")
+#hr2$Concentration <- as.integer(hr2$Concentration)
+
+head(hr2)
+```
+
+# Plot bargraph of heartrates
+
+```{r}
+library(ggplot2)
+
+p <- ggplot(hr2, aes(x=Concentration, y=BPM, group=Population)) + 
+  geom_line(aes(color=Population)) +
+  geom_point(aes(color=Population)) +
+  geom_pointrange(aes(color=Population, ymin=BPM-sd, ymax=BPM+sd)) +
+  scale_color_manual(name="Population", values=c("dodgerblue4", "deepskyblue1", "goldenrod1", "olivedrab3")) +
+  theme_minimal() +
+  xlab("HEWAF Concentration (%)") + 
+  ylab("Heart Rate (BPM)")
+
+```
+
+# Do Stats
+```{r}
+heartrates$Concentration <- as.factor(heartrates$Concentration)
+hr_l <- lm(formula=BPM ~ Concentration * Population, data=heartrates)
+hr_a <- anova(hr_l)
+
+hr_oa <- aov(BPM ~ Concentration*Population, data=heartrates)
+tukey_table <- TukeyHSD(hr_oa)
+tukeyixn <- as.data.frame(tukey_table$`Concentration:Population`)
+
+#vb only 10% is significantly lower than other doses
+vbhr <- aov(BPM ~ Concentration, data=heartrates[heartrates$Population=="VB",])
+
+#gb 10% is not lower than 0, but 32 and 56 are
+gbhr <- aov(BPM ~ Concentration, data=heartrates[heartrates$Population=="GB",])
+
+#ars all doses sig dif exc 32-56
+arshr <- aov(BPM ~ Concentration, data=heartrates[heartrates$Population=="ARS",])
+
+#gt all doses sig dif exc 32-56
+gthr <- aov(BPM ~ Concentration, data=heartrates[heartrates$Population=="GT",])
+
+
+TukeyHSD(vbhr)
+```
+
