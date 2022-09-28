@@ -1,4 +1,4 @@
-this folder contains all of the scripts used to process the RNA-seq data in the "data" folder
+this folder contains all of the files used to process the RNA-seq data 
 
 Embryos (n = 5) were collected for transcriptomic analyses from 3 replicate containers and flash frozen in liquid nitrogen at pre-hatch/onset of eye and pectoral fin movement (~10-14 dpf)
 
