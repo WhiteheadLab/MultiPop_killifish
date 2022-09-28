@@ -1,15 +1,23 @@
 ## Experimental Design:
-* 5 populations of Fundulus grandis were collected across the Gulf of Mexico, RNA-seq data for: 
-   * ARS: Aquatic Research Station, aquacultured pop in LA
-   * GT: Grand Terre, recently oiled pop in LA
-   * VB: Vince Bayou, industrial pollution pop from Houston Ship Channel
-   * GB: Gang's Bayou, clean ref pop near Houston Ship Channel
+* 4 populations of Fundulus grandis were collected across the Gulf of Mexico:
+* Clean sites:
+	* Leeville, LA (LA-REF 29°15'24.6"N 90°12'51.3"W)
+	* Gangs Bayou, Galveston, TX (TX-REF; 29°15'30.31"N; 95°54'45"W)
+* Chemically Polluted sites:
+	* Grand Terre Island, LA; contaminated by the Deepwater Horizon oil spill (LA-DWH; 29° 16' 22.4472'' N 89° 56' 41.46'' W)
+	* polluted Superfund site at Vince Bayou, Houston, TX (TX-SF; 29°43'10"N; 95°13'13"W)
   
 * Adult fish were cultured in lab conditions for 1-2 generations before experiment
 * Parent treatment: Adult fish were exposed to WAF or clean/control water for ~60 days before spawning
 * Embryo exposure dosage: Embryos were exposed to WAF 00%, 10%, 32%, or 56% for 21 days
 * Embryo developmental stage: Embryos were sampled for RNA-seq at stages 19, 28, 35, or hatch
      * Leftover embryos that were unhatched at the end of 21 days were collected as non-hatched (NH)
+RNA-seq data for: 
+   * ARS: Aquatic Research Station, aquacultured pop in LA
+   * GT: Grand Terre, recently oiled pop in LA
+   * VB: Vince Bayou, industrial pollution pop from Houston Ship Channel
+   * GB: Gang's Bayou, clean ref pop near Houston Ship Channel
+   
 * Up to 5 replicates were sequenced for each treatment
 * File naming convention: 
      * [SampleNumber, 4 digits] ARS [ParentTreatment, 1 letter] [Embryo exposure %, 2 digits] [Developmental Stage, 2 digits] [ReplicateNumber 1-5] 
