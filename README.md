@@ -1,11 +1,7 @@
 ## Experimental Design:
 * 4 populations of Fundulus grandis were collected across the Gulf of Mexico:
-* Clean sites:
-	* Leeville, LA (LA-REF 29°15'24.6"N 90°12'51.3"W)
-	* Gangs Bayou, Galveston, TX (TX-REF; 29°15'30.31"N; 95°54'45"W)
-* Chemically Polluted sites:
-	* Grand Terre Island, LA; contaminated by the Deepwater Horizon oil spill (LA-DWH; 29° 16' 22.4472'' N 89° 56' 41.46'' W)
-	* polluted Superfund site at Vince Bayou, Houston, TX (TX-SF; 29°43'10"N; 95°13'13"W)
+* Clean sites: Leeville, LA (LA-REF 29°15'24.6"N 90°12'51.3"W) and Gangs Bayou, Galveston, TX (TX-REF; 29°15'30.31"N; 95°54'45"W)
+* Chemically Polluted sites: Grand Terre Island, LA, contaminated by the Deepwater Horizon oil spill (LA-DWH; 29° 16' 22.4472'' N 89° 56' 41.46'' W) and polluted Superfund site at Vince Bayou, Houston, TX (TX-SF; 29°43'10"N; 95°13'13"W)
   
 * Adult fish were cultured in lab conditions for 1-2 generations before experiment
 * Parent treatment: Adult fish were exposed to WAF or clean/control water for ~60 days before spawning
