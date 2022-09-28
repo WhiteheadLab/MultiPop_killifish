@@ -6,3 +6,6 @@ seconds. Heart rates were analyzed using a two-way ANOVA testing for the main ef
 population, HEWAF concentration, and the interaction of population and HEWAF
 concentration. Post-hoc tests (Tukey HSD) were performed to identify population and HEWAF
 treatment groups with divergent cardiac responses to crude oil exposure.
+
+
+MISSING: 151106_embryoheartrate_JP.xlsx
