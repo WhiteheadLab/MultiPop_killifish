@@ -12,7 +12,8 @@
 * Embryo exposure dosage: Embryos were exposed to WAF 00%, 10%, 32%, or 56% for 21 days
 * Embryo developmental stage: Embryos were sampled for RNA-seq at stages 19, 28, 35, or hatch
      * Leftover embryos that were unhatched at the end of 21 days were collected as non-hatched (NH)
-RNA-seq data for: 
+     
+* RNA-seq data for: 
    * ARS: Aquatic Research Station, aquacultured pop in LA
    * GT: Grand Terre, recently oiled pop in LA
    * VB: Vince Bayou, industrial pollution pop from Houston Ship Channel
