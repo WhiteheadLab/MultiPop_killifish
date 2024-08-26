@@ -74,6 +74,4 @@ Reads were ultimately mapped to Don Gilbert's reference transcriptome, fmd mode.
 
 Gene-level counts from transcript abundances were estimated using `tximport` in R. 
 
-[link to Rmd script]
-
 
